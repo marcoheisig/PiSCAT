@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DISPLAY: :0 # For Xvfb
-      QT_DEBUG_PLUGINS=1 # For Qt Debugging
+      QT_DEBUG_PLUGINS: 1 # For Qt Debugging
     steps:
       - uses: actions/checkout@v3
       - name: Set up Python 3.8
