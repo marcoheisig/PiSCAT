@@ -15,37 +15,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  python39-dbg:
-    runs-on: ubuntu-20.04
+  linux-test:
+    runs-on: ubuntu-latest
     env:
-      # For Xvfb
-      DISPLAY: :0
+      DISPLAY: :0 # For Xvfb
+      QT_DEBUG_PLUGINS=1 # For Qt Debugging
     steps:
       - uses: actions/checkout@v3
-      - name: Configure Test Environment
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.8"
+      - name: Set up Xvfb
         run: |
-          # Install library dependencies.
-          sudo apt-get update
-          sudo apt-get install -y xvfb libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xinput0 libxcb-xfixes0 libopengl0 libegl1-mesa python3.9-dbg python3.9-dev
-          # Ensure the shell fails on the first non-zero exit code.
-          set -eo pipefail
-          # Start xvfb to emulate an X Server for GUI testing.
+          sudo apt-get install -y xvfb x11-utils libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xinput0 libxcb-xfixes0 libopengl0 libegl1-mesa
           sudo Xvfb $DISPLAY -screen 0 1280x1024x24 &
-          # Print various kinds of system information.
-          uname -a
-          ulimit -a
-          free -h
-          python3.9-dbg --version
-      - name: Install PiSCAT and its Dependencies
+      - name: Install Python Dependencies
         run: |
-          # Update Python build utilities.
-          python3.9-dbg -m pip install --upgrade pip setuptools wheel
-          python3.9-dbg -m pip install -e .[test]
-          # Print the list of installed packages.
+          python -m pip install --upgrade pip
+          python -m pip install -e .[test]
           pip freeze
       - name: Run Test Suite
         run: |
+          uname -a
+          ulimit -a
+          free -h
           pwd
           tree .
-          python3.9-dbg --version
+          python --version
           pytest tests/Module/InputOutput/cpu_configurations_test.py
