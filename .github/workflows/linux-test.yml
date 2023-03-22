@@ -45,4 +45,5 @@ jobs:
           pip freeze
       - name: Run Test Suite
         run: |
-          python3.9-dbg -m pytest
+          tree .
+          python3.9-dbg -m pytest tests/Module/InputOutput/cpu_configurations_test.py
