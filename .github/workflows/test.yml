@@ -16,9 +16,9 @@ jobs:
     strategy:
       matrix:
         os: [MacOS, Ubuntu, Windows]
-        python-version: ['3.8', '3.11']
+        python-version: ['3.8', '3.10']
         exclude:
-          - os: macos-latest
+          - os: MacOS
             python-version: '3.8'
     env:
       DISPLAY: :0 # For Xvfb
