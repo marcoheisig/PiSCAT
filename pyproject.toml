@@ -63,6 +63,7 @@ dev = [
 test = [
     "coverage",
     "pytest",
+    "pytest-cov",
     "pytest-benchmark[histogram]",
 ]
 

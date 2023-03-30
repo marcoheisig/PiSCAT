@@ -2,15 +2,15 @@ name: PiSCAT Test
 
 on: [push, pull_request, workflow_dispatch]
 
-permissions:
-  contents: read
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  piscat-test:
+
+  test:
+    permissions:
+      contents: read
     name: ${{matrix.os}} / ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}-latest
     strategy:
@@ -39,6 +39,30 @@ jobs:
         run: |
           python -m pip install --upgrade pip pipenv setuptools wheel
           python -m pip install -e .[test]
+          python -m pip freeze
       - name: Run Test Suite
         run: |
-          pytest tests/Module/InputOutput/cpu_configurations_test.py
+          pytest --cov=piscat --cov-report html:htmlcov --cov-report term tests/Module/InputOutput/cpu_configurations_test.py
+
+  deploy:
+    if: (github.repository == 'SandoghdarLab/PiSCAT') && (github.ref == 'refs/heads/master')
+    needs: test
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Pages
+      uses: actions/configure-pages@v2
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v1
+      with:
+        path: './htmlcov/'
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v1
