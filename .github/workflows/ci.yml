@@ -23,16 +23,14 @@ jobs:
     env:
       DISPLAY: :0 # Tell Xvfb which virtual display to use.
       QT_DEBUG_PLUGINS: 1 # Improve Qt debugging experience.
-      PIPENV_NOSPIN: "1" # Suppress pipenv spinner for cleaner logs.
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-          cache-dependency-path: 'pyproject.toml'
       - name: Set up Xvfb
-        if: runner.os == 'Linux'
+        if: runner.os == "Linux"
         run: |
           sudo apt-get install -y xvfb x11-utils libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xinput0 libxcb-xfixes0 libopengl0 libegl1-mesa
           sudo Xvfb $DISPLAY -screen 0 1280x1024x24 &
