@@ -41,10 +41,9 @@ def check_kernel(kernel: VideoOp):
 def check_video(video: Video):
     nchunks = len(video._chunks)
     csize = video.chunk_shape[0]
-    assert video._start < csize
-    assert (nchunks - 1) * csize < video._end <= nchunks * csize
+    assert video.chunk_offset < csize
     (length, h, w) = video.shape
-    assert length == video._end - video._start
+    assert (nchunks - 1) * csize < video.chunk_offset + length <= nchunks * csize
     assert length == len(video)
     assert h == video.shape[1]
     assert w == video.shape[2]
@@ -128,7 +127,7 @@ def test_video_indexing():
             chunks = [VideoChunk.from_array(array) for array in arrays]
             array = np.concatenate(arrays, axis=0)
             for offset in range(chunk_shape[0] - 1):
-                video = Video(chunks, offset, chunk_shape[0] * nchunks)
+                video = Video(chunks, offset)
                 length = len(video)
                 assert np.array_equal(video[0:], array[offset : offset + length])
                 half = length // 2

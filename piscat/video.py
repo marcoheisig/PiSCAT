@@ -373,36 +373,41 @@ class Video:
         be allocated and initialized each time the data is accessed.
     :param chunk_shape: A (frames, height, width) tuple describing the size of
         the chunks into which the video is partitioned internally.
+    :param chunk_offset: The position of the video's first frame in the first chunk.
     """
 
     _chunks: list[VideoChunk]
     _shape: tuple[int, int, int]
-    _start: int
-    _end: int
+    _chunk_offset: int
 
-    def __init__(self, chunks: Iterable[VideoChunk], start: int, end: int):
+    def __init__(
+        self, chunks: Iterable[VideoChunk], chunk_offset: int = 0, length: int | None = None
+    ):
         chunks = list(chunks)
-        if len(chunks) == 0:
+        nchunks = len(chunks)
+        if nchunks == 0:
             raise ValueError("Cannot create a video with zero chunks.")
-        for chunk in chunks[1:]:
-            if not (chunk.shape == chunks[0].shape):
+        chunk0_shape = chunks[0].shape
+        chunk0_dtype = chunks[0].dtype
+        for chunk in chunks[1:nchunks]:
+            if not (chunk.shape == chunk0_shape):
                 raise ValueError("All chunks of a video must have the same size.")
-            if not (chunk.dtype == chunks[0].dtype):
+            if not (chunk.dtype == chunk0_dtype):
                 raise ValueError("All chunks of a video must have the same dtype.")
-        (f, h, w) = chunks[0].shape
-        length = end - start
-        total = f * len(chunks)
-        if f > 0:
-            if not 0 <= start < f:
-                raise ValueError("The video's start argument must be within the first chunk.")
-            if not (total - f <= end <= total):
-                raise ValueError("The video's end argument must be within the last chunk.")
+        (chunk_size, h, w) = chunk0_shape
+        nframes = chunk_size * len(chunks)
+        length = (nframes - chunk_offset) if length is None else length
+        if (chunk_offset + length) > nframes:
+            raise ValueError("Not enough chunks.")
+        if chunk_size > 0 and not 0 <= chunk_offset < chunk_size:
+            raise ValueError("The chunk_offset argument must be within the first chunk.")
+        if chunk_size > 0 and not (chunk_offset + length) > nframes - chunk_size:
+            raise ValueError("Too many chunks.")
         for chunk in chunks:
             chunk._videos.add(self)
         self._chunks = chunks
         self._shape = (length, h, w)
-        self._start = start
-        self._end = end
+        self._chunk_offset = chunk_offset
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -425,32 +430,33 @@ class Video:
         """
         return self.shape[0]
 
+    @property
+    def chunk_offset(self):
+        return self._chunk_offset
+
     def __array__(self):
-        if self._start == self._end:
+        length = len(self)
+        if length == 0:
             return self._chunks[0][0:0]
-        istart = 0
-        istop = self._end - self._start
-        length = istop - istart
-        ilast = istart + (length - 1)
-        pstart = self._start + istart
-        pstop = self._start + istop
-        plast = self._start + ilast
-        (csize, h, w) = self.chunk_shape
-        cstart = pstart // csize
-        clast = plast // csize
-        nchunks = (clast - cstart) + 1
+        chunks = self._chunks
+        chunk_offset = self.chunk_offset
+        nchunks = len(chunks)
         if nchunks == 1:
-            start = pstart - cstart * csize
-            stop = pstop - cstart * csize
-            return self._chunks[cstart][start:stop]
+            return chunks[0][chunk_offset : chunk_offset + length]
         else:
+            (chunk_size, h, w) = self.chunk_shape
             result = np.ndarray(shape=(length, h, w), dtype=self.dtype)
             pos = 0
-            for cn in range(cstart, clast + 1):
-                chunk = self._chunks[cn]
-                start = max(pstart - cn * csize, 0)
-                stop = min(pstop - cn * csize, csize)
+            for cn in range(nchunks):
+                chunk = chunks[cn]
+                start = chunk_offset if cn == 0 else 0
+                stop = (
+                    (chunk_offset + length) - cn * chunk_size
+                    if cn == (nchunks - 1)
+                    else chunk_size
+                )
                 count = stop - start
+                print(f"result[{pos}:{pos+count}] = chunk[{start}:{stop}]")
                 result[pos : pos + count] = chunk[start:stop]
                 pos += count
             return result
@@ -485,18 +491,16 @@ class Video:
 
         def icheck(index):
             if not (0 <= index < size):
-                raise IndexError(
-                    f"Cannot access the frame {index} of a video with {size} frames."
-                )
+                raise IndexError(f"Invalid index {index} for a video with {size} frames.")
 
         if isinstance(index, int):
             icheck(index)
-            p = self._start + index
+            p = self.chunk_offset + index
             chunk = chunks[p // csize]
             return chunk[p % csize]
         elif isinstance(index, slice):
             istart = 0 if index.start is None else index.start
-            istop = self.shape[0] if index.stop is None else max(istart, index.stop)
+            istop = len(self) if index.stop is None else max(istart, index.stop)
             istep = 1 if index.step is None else index.step
             assert istep == 1  # TODO
             if istart == istop:
@@ -507,13 +511,9 @@ class Video:
             count = (istop - istart) // istep
             ilast = max(istart, istart + count - 1)
             icheck(ilast)
-            pstart = self._start + istart
-            plast = self._start + ilast
-            return Video(
-                chunks[pstart // csize : (plast // csize) + 1],
-                pstart % csize,
-                pstart % csize + count,
-            )
+            pstart = self.chunk_offset + istart
+            plast = self.chunk_offset + ilast
+            return Video(chunks[pstart // csize : (plast // csize) + 1], pstart % csize, count)
         elif isinstance(index, tuple):
             return self[index[0]].__getitem__(index[1:])
         else:
@@ -524,13 +524,16 @@ class Video:
             yield self[index]
 
     def batches(self) -> Iterator[Batch]:
+        length = len(self)
         chunks = self._chunks
         nchunks = len(chunks)
-        csize = self.chunk_shape[0]
-        for index in range(nchunks):
-            start = max(0, self._start - index * csize)
-            stop = min(csize, self._end - index * csize)
-            yield Batch(chunks[index], start, stop, 1)
+        chunk_size = self.chunk_shape[0]
+        chunk_offset = self.chunk_offset
+        yield Batch(chunks[0], chunk_offset, min(chunk_size, chunk_offset + length))
+        for cn in range(1, nchunks):
+            start = 0
+            stop = min(chunk_size, chunk_offset + length - cn * chunk_size)
+            yield Batch(chunks[cn], start, stop)
 
     @staticmethod
     def concatenate(videos: Iterable[Video]):
