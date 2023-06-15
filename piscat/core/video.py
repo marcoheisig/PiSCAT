@@ -3,18 +3,20 @@ from __future__ import annotations
 import itertools
 import os
 import pathlib
-import sys
-import tempfile
 import weakref
-from fractions import Fraction
-from typing import Iterable, Iterator, NamedTuple, Protocol, Sequence, overload
+from typing import Callable, Iterable, Iterator, NamedTuple, Sequence, Union, overload
 
-import ffmpeg
+import filetype
 import numpy as np
 import numpy.typing as npt
 from tqdm import tqdm
 
+from piscat.io import FFmpegReader, FileReader
+from piscat.io.ffmpeg import FFmpegWriter
+
 Array = np.ndarray
+
+Path = Union[str, pathlib.Path]
 
 BYTES_PER_CHUNK = 2**21
 
@@ -132,15 +134,9 @@ class Batch(NamedTuple):
     step: int = 1
 
 
-class Kernel(Protocol):
-    """
-    An kernel is a callable that is suitable for constructing a video op.
-    """
+Batches = Sequence[Batch]
 
-    def __call__(
-        self, targets: Sequence[Batch], sources: Sequence[Batch], *args, **kwargs
-    ) -> None:
-        ...
+Kernel = Callable[[Batches, Batches], None]
 
 
 class VideoOp:
@@ -164,16 +160,12 @@ class VideoOp:
     _args: tuple
     _kwargs: dict
 
-    def __init__(
-        self, kernel: Kernel, targets: list[Batch], sources: list[Batch], *args, **kwargs
-    ):
+    def __init__(self, kernel: Kernel, targets: list[Batch], sources: list[Batch]):
         assert len(targets) > 0
         # Connect this kernel with its source and target chunks.
         self._targets = targets
         self._sources = sources
         self._kernel = kernel
-        self._args = args
-        self._kwargs = kwargs
         for target, _, _, _ in targets:
             assert not target._data
             target._data = self
@@ -189,14 +181,6 @@ class VideoOp:
         return self._targets
 
     @property
-    def args(self) -> tuple:
-        return self._args
-
-    @property
-    def kwargs(self) -> dict:
-        return self._kwargs
-
-    @property
     def kernel(self) -> Kernel:
         return self._kernel
 
@@ -210,7 +194,7 @@ class VideoOp:
         for source, _, _, _ in self.sources:
             assert isinstance(source._data, Array)
         # Run the kernel.
-        self.kernel(self.targets, self.sources, *self.args, **self.kwargs)
+        self.kernel(self.targets, self.sources)
         # Mark each target as read-only.
         for target, _, _, _ in self.targets:
             target.data.setflags(write=False)
@@ -220,35 +204,35 @@ class VideoOp:
             source._users.remove(self)
 
 
-def copy_kernel(targets: Sequence[Batch], sources: Sequence[Batch], *args, **kwargs) -> None:
-    assert not args
-    assert not kwargs
+def copy_kernel(targets: Batches, sources: Batches) -> None:
     assert len(targets) == 1
     (target, tstart, tstop, _) = targets[0]
     pos = tstart
     for source, sstart, sstop, _ in sources:
-        n = sstop - sstart
-        target[pos : pos + n] = source[sstart:sstop]
-        pos += n
+        count = sstop - sstart
+        target[pos : pos + count] = source[sstart:sstop]
+        pos += count
     assert pos == tstop
 
 
-def fill_kernel(targets: Sequence[Batch], sources: Sequence[Batch], *args, **kwargs) -> None:
-    assert len(targets) == 1
-    assert len(sources) == 0
-    assert not kwargs
-    (value,) = args
-    (target, tstart, tstop, tstep) = targets[0]
-    target[tstart:tstop:tstep] = value
+def get_fill_kernel(value) -> Kernel:
+    def kernel(targets: Batches, sources: Batches):
+        assert len(sources) == 0
+        (target, tstart, tstop, tstep) = targets[0]
+        target[tstart:tstop:tstep] = value
+
+    return kernel
 
 
-def thunk_kernel(targets: Sequence[Batch], sources: Sequence[Batch], *args, **kwargs) -> None:
-    assert len(targets) == 1
-    assert len(sources) == 0
-    assert not kwargs
-    (thunk,) = args
-    (target, tstart, tstop, tstep) = targets[0]
-    target[tstart:tstop:tstep] = thunk()
+def get_reader_kernel(reader: FileReader, start: int, stop: int) -> Kernel:
+    def kernel(targets: Batches, sources: Batches) -> None:
+        assert len(targets) == 1
+        assert len(sources) == 0
+        (chunk, cstart, cstop, _) = targets[0]
+        assert (stop - start) == (cstop - cstart)
+        reader.read_chunk(chunk.data, start, stop)
+
+    return kernel
 
 
 def compute_chunks(chunks: Iterable[VideoChunk]) -> None:
@@ -445,7 +429,7 @@ class Video:
             return chunks[0][chunk_offset : chunk_offset + length]
         else:
             (chunk_size, h, w) = self.chunk_shape
-            result = np.ndarray(shape=(length, h, w), dtype=self.dtype)
+            result = np.empty(shape=(length, h, w), dtype=self.dtype)
             pos = 0
             for cn in range(nchunks):
                 chunk = chunks[cn]
@@ -609,21 +593,14 @@ class Video:
         nchunks = ceildiv(length, csize)
         chunks = [VideoChunk(cshape, dtype) for _ in range(nchunks)]
         for cn in range(nchunks - 1):
-            VideoOp(fill_kernel, [Batch(chunks[cn], 0, csize)], [], frame)
+            VideoOp(get_fill_kernel(frame), [Batch(chunks[cn], 0, csize)], [])
         if nchunks > 0:
             cn = nchunks - 1
-            VideoOp(fill_kernel, [Batch(chunks[cn], 0, length - cn * csize)], [], frame)
+            VideoOp(get_fill_kernel(frame), [Batch(chunks[cn], 0, length - cn * csize)], [])
         return Video(chunks, 0, length)
 
     @staticmethod
-    def from_file(
-        path: os.PathLike,
-        /,
-        format: str | None = None,
-        shape: tuple[int, int, int] | None = None,
-        dtype: npt.DTypeLike = np.uint16,
-        scale: tuple[int, int, int] | None = None,
-    ) -> Video:
+    def from_file(path: Path, /, chunk_size: int | None = None) -> Video:
         """
         Return a video whose contents are read in from a file.
 
@@ -637,105 +614,77 @@ class Video:
             supplied, an error is raised if the video's shape differs from its
             expectation.
         :param dtype: The element type of the resulting video.
-        :param scale: If supplied, the video is interpolated to match the
-            specified number of frames, height, and width right after being read
-            in.  Doing so can be more efficient than first reading in the video
-            and then scaling it in a separate step.
         """
-        path = pathlib.Path(path).absolute()
-        if not path.exists:
-            raise ValueError(f"No video file at {path}.")
-        # Attempt to derive the file format.
-        if format is None and path.suffix and len(path.suffix) > 1 and path.suffix[0] == ".":
-            format = path.suffix[1:].lower()
-
-        def check_shape(actual_shape: tuple[int, int, int]):
-            if shape and shape != actual_shape:
-                raise ValueError(
-                    f"Expected a video with shape {shape}, but the video at {path} "
-                    + f"has shape {actual_shape}."
-                )
-
-        # Dispatch on the derived video format.
-        if format == "raw":
-            raise RuntimeError("TODO")
-        elif format == "tif":
-            raise RuntimeError("TODO")
-        elif format == "fits":
-            raise RuntimeError("TODO")
-        elif format == "fli":
-            raise RuntimeError("TODO")
-        elif format == "h5":
-            raise RuntimeError("TODO")
-        elif format == "npy":
-            raise RuntimeError("TODO")
-        # If none of the above video formats applies, default to using ffmpeg.
-        metadata = ffmpeg.probe(str(path), **({} if not format else {"f": format}))
-        stream = next(s for s in metadata["streams"] if s["codec_type"] == "video")
-        if not stream:
-            raise ValueError(f"No video stream found in {path}.")
-        f, h, w = int(stream.get("nb_frames", "1")), stream["height"], stream["width"]
-        check_shape((f, h, w))
-        d, r = float(stream["duration"]), Fraction(stream["avg_frame_rate"])
-        # The actual reading of the video happens in two steps.  First, the
-        # relevant part of the video is copied to a temporary file.  Then, in a
-        # second step, the contents of that file are turned into raw data and
-        # written into a video chunk.  Performing both actions in one step has
-        # proven to be unreliable (at least for AVI videos).
-        with tempfile.NamedTemporaryFile(suffix=path.suffix) as tmp:
-            (
-                ffmpeg.input(str(path), ss="00:00", t=d)
-                .output(tmp.name, codec="copy")
-                .overwrite_output()
-                .run(quiet=True)
-            )
-            pix_fmt = pix_fmt_from_dtype(dtype)
-            frames = scale[0] if scale else f
-            r = (r * frames) / f
-            out, _ = (
-                ffmpeg.input(tmp.name, **({} if not format else {"f": format}))
-                .filter("scale", height=scale[1] if scale else h, width=scale[2] if scale else w)
-                .output("pipe:", format="rawvideo", pix_fmt=pix_fmt, r=r, frames=frames)
-                .run(capture_stdout=True, quiet=True)
-            )
-            return Video.from_array(
-                np.frombuffer(out, dtype).reshape(scale if scale else (f, h, w))
-            )
-
-    def to_file(
-        self,
-        path: os.PathLike,
-        file_format: str | None = None,
-        flush: bool = False,
-        timestamp: bool = False,
-        overwrite: bool = False,
-    ) -> None:
-        path = pathlib.Path(path).absolute()
-
-
-def pix_fmt_from_dtype(dtype: npt.DTypeLike) -> str:
-    dtype = np.dtype(dtype)
-
-    def dtype_is_le(dtype):
-        if dtype.itemsize == 1:
-            return True
-        elif dtype.byteorder == "<":
-            return True
-        elif dtype.byteorder == "=":
-            return sys.byteorder == "little"
-        elif dtype.byteorder == ">":
-            return False
+        if isinstance(path, str):
+            path = pathlib.Path(path)
+        extension = filetype.guess_extension(path)
+        if extension == "raw":
+            raise NotImplementedError()
+        elif extension == "tif":
+            raise NotImplementedError()
+        elif extension == "fits":
+            raise NotImplementedError()
+        elif extension == "fli":
+            raise NotImplementedError()
+        elif extension == "h5":
+            raise NotImplementedError()
+        elif extension == "npy":
+            raise NotImplementedError()
         else:
-            raise ValueError("The dtype {dtype} has no known byte order.")
+            reader = FFmpegReader(path)
+        shape = reader.shape
+        dtype = reader.dtype
+        if chunk_size is None:
+            chunk_size = Video.plan_chunk_size(shape, dtype)
+        (f, h, w) = shape
+        chunks = []
+        for start in range(0, f, chunk_size):
+            stop = min(f, start + chunk_size)
+            count = stop - start
+            chunk = VideoChunk((chunk_size, h, w), dtype)
+            kernel = get_reader_kernel(reader, start, stop)
+            VideoOp(kernel, [Batch(chunk, 0, count)], [])
+            chunks.append(chunk)
+        return Video(chunks, length=shape[0])
 
-    if dtype == np.float32:
-        return "grayf32le" if dtype_is_le(dtype) else "grayf32be"
-    elif dtype == np.uint8:
-        return "gray"
-    elif dtype == np.uint16:
-        return "gray16le" if dtype_is_le(dtype) else "gray16be"
-    else:
-        raise ValueError(f"Cannot load this video as {dtype}.")
+    @staticmethod
+    def from_raw_file(path: Path, shape: tuple[int, int, int], dtype=npt.DTypeLike) -> Video:
+        if isinstance(path, str):
+            path = pathlib.Path(path)
+        pass  # TODO
+
+    def to_file(self, path: Path, /, overwrite: bool = False) -> Video:
+        if isinstance(path, str):
+            path = pathlib.Path(path)
+        if path.exists():
+            if overwrite:
+                os.remove(path)
+            else:
+                raise ValueError(f"The file named {path} already exists.")
+        suffix = path.suffix
+        extension = suffix[1:] if len(suffix) > 0 and suffix[0] == "." else ""
+        if extension == "":
+            raise ValueError(f"Couldn't determine the type of {path} (missing suffix).")
+        if extension == "raw":
+            raise NotImplementedError()
+        elif extension == "tif":
+            raise NotImplementedError()
+        elif extension == "fits":
+            raise NotImplementedError()
+        elif extension == "fli":
+            raise NotImplementedError()
+        elif extension == "h5":
+            raise NotImplementedError()
+        elif extension == "npy":
+            raise NotImplementedError()
+        else:
+            writer = FFmpegWriter(path, self.shape, self.dtype)
+        position = 0
+        for chunk, start, stop, _ in self.batches():
+            count = stop - start
+            writer.write_chunk(chunk.data[start:stop], position)
+            position += count
+        return self
 
 
 def ceildiv(a: int, b: int) -> int:

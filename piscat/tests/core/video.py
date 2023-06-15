@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-from piscat.video import Batch, Video, VideoChunk, VideoOp, copy_kernel
+from piscat.core.video import Batch, Video, VideoChunk, VideoOp, copy_kernel
 
 
 def check_chunk(chunk: VideoChunk):
@@ -132,3 +132,7 @@ def test_video_indexing():
                 assert np.array_equal(video[0:], array[offset : offset + length])
                 half = length // 2
                 assert np.array_equal(video[half], array[offset + half])
+
+
+def test_video_io():
+    pass
