@@ -11,8 +11,9 @@ import numpy as np
 import numpy.typing as npt
 from tqdm import tqdm
 
-from piscat.io import FFmpegReader, FileReader
-from piscat.io.ffmpeg import FFmpegWriter
+from piscat.io import FileReader
+from piscat.io.ffmpeg import FFmpegReader, FFmpegWriter
+from piscat.io.raw import RawReader, RawWriter
 
 Array = np.ndarray
 
@@ -230,7 +231,7 @@ def get_reader_kernel(reader: FileReader, start: int, stop: int) -> Kernel:
         assert len(sources) == 0
         (chunk, cstart, cstop, _) = targets[0]
         assert (stop - start) == (cstop - cstart)
-        reader.read_chunk(chunk.data, start, stop)
+        reader.read_chunk(chunk.data[cstart:cstop], start, stop)
 
     return kernel
 
@@ -440,7 +441,6 @@ class Video:
                     else chunk_size
                 )
                 count = stop - start
-                print(f"result[{pos}:{pos+count}] = chunk[{start}:{stop}]")
                 result[pos : pos + count] = chunk[start:stop]
                 pos += count
             return result
@@ -499,7 +499,12 @@ class Video:
             plast = self.chunk_offset + ilast
             return Video(chunks[pstart // csize : (plast // csize) + 1], pstart % csize, count)
         elif isinstance(index, tuple):
-            return self[index[0]].__getitem__(index[1:])
+            i0 = index[0]
+            if isinstance(i0, int):
+                return self[i0].__getitem__(index[1:])
+            else:
+                # TODO
+                return np.array(self)[index]
         else:
             raise ValueError(f"Invalid video index: {index}")
 
@@ -617,9 +622,11 @@ class Video:
         """
         if isinstance(path, str):
             path = pathlib.Path(path)
+        if not path.exists() or not path.is_file():
+            raise ValueError(f"No such file: {path}")
         extension = filetype.guess_extension(path)
         if extension == "raw":
-            raise NotImplementedError()
+            raise RuntimeError("Please use Video.from_raw_file to load raw videos.")
         elif extension == "tif":
             raise NotImplementedError()
         elif extension == "fits":
@@ -648,10 +655,29 @@ class Video:
         return Video(chunks, length=shape[0])
 
     @staticmethod
-    def from_raw_file(path: Path, shape: tuple[int, int, int], dtype=npt.DTypeLike) -> Video:
+    def from_raw_file(
+        path: Path,
+        shape: tuple[int, int, int],
+        dtype=npt.DTypeLike,
+        /,
+        chunk_size: int | None = None,
+    ) -> Video:
         if isinstance(path, str):
             path = pathlib.Path(path)
-        pass  # TODO
+        dtype = np.dtype(dtype)
+        reader = RawReader(path, shape, np.dtype(dtype))
+        if chunk_size is None:
+            chunk_size = Video.plan_chunk_size(shape, dtype)
+        (f, h, w) = shape
+        chunks = []
+        for start in range(0, f, chunk_size):
+            stop = min(f, start + chunk_size)
+            count = stop - start
+            chunk = VideoChunk((chunk_size, h, w), dtype)
+            kernel = get_reader_kernel(reader, start, stop)
+            VideoOp(kernel, [Batch(chunk, 0, count)], [])
+            chunks.append(chunk)
+        return Video(chunks, length=shape[0])
 
     def to_file(self, path: Path, /, overwrite: bool = False) -> Video:
         if isinstance(path, str):
@@ -666,7 +692,7 @@ class Video:
         if extension == "":
             raise ValueError(f"Couldn't determine the type of {path} (missing suffix).")
         if extension == "raw":
-            raise NotImplementedError()
+            writer = RawWriter(path, self.shape, self.dtype)
         elif extension == "tif":
             raise NotImplementedError()
         elif extension == "fits":
@@ -680,9 +706,9 @@ class Video:
         else:
             writer = FFmpegWriter(path, self.shape, self.dtype)
         position = 0
-        for chunk, start, stop, _ in self.batches():
-            count = stop - start
-            writer.write_chunk(chunk.data[start:stop], position)
+        for chunk, cstart, cstop, _ in self.batches():
+            count = cstop - cstart
+            writer.write_chunk(chunk.data[cstart:cstop], position)
             position += count
         return self
 

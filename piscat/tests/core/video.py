@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import pathlib
+import tempfile
+
 import numpy as np
 import numpy.typing as npt
 
@@ -135,4 +139,25 @@ def test_video_indexing():
 
 
 def test_video_io():
-    pass
+    a1 = iota_frames(0, 100, dtype=np.dtype("u1"))
+    a2 = a1.astype(np.dtype("u2")) * 256
+    a3 = a1 / np.array(256, np.dtype("f4"))
+    v1 = Video.from_array(a1)
+    v2 = Video.from_array(a2)
+    v3 = Video.from_array(a3)
+    with tempfile.TemporaryDirectory() as td:
+        vn = 0
+        for video in [v1, v2, v3]:
+            for suffix in ["raw", "mp4"]:
+                path = os.path.join(td, f"video{vn}.{suffix}")
+                vn += 1
+                video.to_file(path)
+                video.to_file(f"/tmp/piscat_debug.{suffix}", overwrite=True)  # TODO
+                assert pathlib.Path(path).exists()
+                if suffix == "raw":
+                    other = Video.from_raw_file(path, video.shape, video.dtype)
+                else:
+                    other = Video.from_file(path)
+                assert video.dtype == other.dtype
+                assert video.shape == other.shape
+                assert np.allclose(video, other, atol=1e-5)

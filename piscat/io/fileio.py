@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import pathlib
-from typing import Any, Literal, MutableSequence
+from typing import Any, Literal
 
 import numpy as np
 
@@ -76,22 +76,23 @@ class FileReader(FileIO):
     :param dtype: The type of each element in the file.
     """
 
-    def read_chunk(self, target: MutableSequence, start: int, stop: int) -> None:
+    def read_chunk(self, array: np.ndarray, start: int, stop: int) -> None:
         """
         Read the data from the designated interval
 
-        :param target: Where the data is written to.
+        :param array: Where the data is written to.
         :param start: The index of the first part of the data to be read.
         :param stop: The index right after the last part of the data to be read.
         :raise RuntimeError: Raise an error if an index is read from multiple times.
         """
+        assert len(array) == stop - start
         self._maybe_initialize()
         self._mark(start, stop)
-        self._read_chunk(target, start, stop)
+        self._read_chunk(array, start, stop)
         self._maybe_finalize()
 
     @abc.abstractmethod
-    def _read_chunk(self, target: MutableSequence, start: int, stop: int) -> None:
+    def _read_chunk(self, target: np.ndarray, start: int, stop: int) -> None:
         ...
 
 
