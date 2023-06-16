@@ -138,5 +138,5 @@ def write_GIF(dir_path, file_name, data, jump=0, fps=10):
     for frame_number in tqdm(range(0, data.shape[0] - jump, jump)):
         image_.append(data[frame_number, ...])
 
-    imageio.mimsave(save_path, image_, format="GIF", fps=fps)
+    imageio.mimsave(save_path, image_, format="GIF", duration=1000 // fps)
     return save_path_
