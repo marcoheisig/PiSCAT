@@ -148,11 +148,10 @@ def test_video_io():
     with tempfile.TemporaryDirectory() as td:
         vn = 0
         for video in [v1, v2, v3]:
-            for suffix in ["raw", "mp4"]:
+            for suffix in ["npy", "raw", "mp4"]:
                 path = os.path.join(td, f"video{vn}.{suffix}")
                 vn += 1
                 video.to_file(path)
-                video.to_file(f"/tmp/piscat_debug.{suffix}", overwrite=True)  # TODO
                 assert pathlib.Path(path).exists()
                 if suffix == "raw":
                     other = Video.from_raw_file(path, video.shape, video.dtype)

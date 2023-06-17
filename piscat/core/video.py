@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from piscat.io import FileReader
 from piscat.io.ffmpeg import FFmpegReader, FFmpegWriter
+from piscat.io.numpy import NumpyReader, NumpyWriter
 from piscat.io.raw import RawReader, RawWriter
 
 Array = np.ndarray
@@ -624,9 +625,16 @@ class Video:
             path = pathlib.Path(path)
         if not path.exists() or not path.is_file():
             raise ValueError(f"No such file: {path}")
-        extension = filetype.guess_extension(path)
+        # Determine the file extension.
+        if path.suffix and path.suffix.startswith("."):
+            extension = path.suffix[1:]
+        else:
+            extension = filetype.guess_extension(path)
+        # Create an appropriate video reader.
         if extension == "raw":
             raise RuntimeError("Please use Video.from_raw_file to load raw videos.")
+        elif extension == "npy":
+            reader = NumpyReader(path)
         elif extension == "tif":
             raise NotImplementedError()
         elif extension == "fits":
@@ -635,10 +643,9 @@ class Video:
             raise NotImplementedError()
         elif extension == "h5":
             raise NotImplementedError()
-        elif extension == "npy":
-            raise NotImplementedError()
         else:
             reader = FFmpegReader(path)
+        # Create the video.
         shape = reader.shape
         dtype = reader.dtype
         if chunk_size is None:
@@ -693,6 +700,8 @@ class Video:
             raise ValueError(f"Couldn't determine the type of {path} (missing suffix).")
         if extension == "raw":
             writer = RawWriter(path, self.shape, self.dtype)
+        elif extension == "npy":
+            writer = NumpyWriter(path, self.shape, self.dtype)
         elif extension == "tif":
             raise NotImplementedError()
         elif extension == "fits":
@@ -700,8 +709,6 @@ class Video:
         elif extension == "fli":
             raise NotImplementedError()
         elif extension == "h5":
-            raise NotImplementedError()
-        elif extension == "npy":
             raise NotImplementedError()
         else:
             writer = FFmpegWriter(path, self.shape, self.dtype)

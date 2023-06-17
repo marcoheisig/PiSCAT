@@ -10,7 +10,7 @@ from piscat.io.fileio import FileReader, FileWriter
 
 
 class RawReader(FileReader):
-    _fd: int
+    _fd: int | None = None
     _mmap: mmap.mmap | None = None
 
     def __init__(self, path: pathlib.Path, shape: tuple[int, ...], dtype: np.dtype):
@@ -19,6 +19,8 @@ class RawReader(FileReader):
         super().__init__(path, shape, dtype)
 
     def _initialize(self) -> None:
+        assert self._mmap is None
+        assert self._fd is None
         super()._initialize()
         (f, h, w) = self.shape
         dtype = self.dtype
@@ -27,6 +29,7 @@ class RawReader(FileReader):
         self._mmap = mmap.mmap(self._fd, nbytes, access=mmap.ACCESS_READ)
 
     def _finalize(self) -> None:
+        assert self._fd is not None
         assert self._mmap is not None
         self._mmap.close()
         os.close(self._fd)
