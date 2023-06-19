@@ -635,8 +635,6 @@ class Video:
             raise RuntimeError("Please use Video.from_raw_file to load raw videos.")
         elif extension == "npy":
             reader = NumpyReader(path)
-        elif extension == "tif":
-            raise NotImplementedError()
         elif extension == "fits":
             raise NotImplementedError()
         elif extension == "fli":
@@ -695,15 +693,13 @@ class Video:
             else:
                 raise ValueError(f"The file named {path} already exists.")
         suffix = path.suffix
-        extension = suffix[1:] if len(suffix) > 0 and suffix[0] == "." else ""
+        extension = suffix[1:] if suffix.startswith(".") else "npy"
         if extension == "":
             raise ValueError(f"Couldn't determine the type of {path} (missing suffix).")
         if extension == "raw":
             writer = RawWriter(path, self.shape, self.dtype)
         elif extension == "npy":
             writer = NumpyWriter(path, self.shape, self.dtype)
-        elif extension == "tif":
-            raise NotImplementedError()
         elif extension == "fits":
             raise NotImplementedError()
         elif extension == "fli":
