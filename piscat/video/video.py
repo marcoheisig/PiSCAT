@@ -3,7 +3,7 @@ from __future__ import annotations
 import itertools
 import os
 import pathlib
-from typing import Any, Iterable, Iterator, Union, overload
+from typing import Iterable, Iterator, Union, overload
 
 import filetype
 import numpy as np
@@ -30,57 +30,6 @@ Path = Union[str, pathlib.Path]
 EllipsisType = type(Ellipsis)
 
 Slice = Union[slice, EllipsisType]
-
-
-class VideoPixel:
-    _chunk: VideoChunk
-    _frame: int
-    _row: int
-    _column: int
-
-    def __init__(self, chunk: VideoChunk, frame: int, row: int, column: int):
-        (f, h, w) = chunk.shape
-        assert 0 <= frame < f
-        assert 0 <= row < h
-        assert 0 <= column < w
-        self._chunk = chunk
-        self._frame = frame
-        self._row = row
-        self._column = column
-
-    def __getitem__(self, _: tuple[()]) -> Any:
-        return self._chunk.data[self._frame, self._row, self._column]
-
-
-class VideoRow:
-    _chunk: VideoChunk
-    _frame: int
-    _row: int
-
-    def __init__(self, chunk: VideoChunk, frame: int, row: int):
-        (f, h, _) = chunk.shape
-        assert 0 <= frame < f
-        assert 0 <= row < h
-        self._chunk = chunk
-        self._frame = frame
-        self._row = row
-
-    def __getitem__(self, index) -> Any:
-        return self._chunk.data[self._frame, self._row][index]
-
-
-class VideoFrame:
-    _chunk: VideoChunk
-    _frame: int
-
-    def __init__(self, chunk: VideoChunk, frame: int):
-        (f, _, _) = chunk.shape
-        assert 0 <= frame < f
-        self._chunk = chunk
-        self._frame = frame
-
-    def __getitem__(self, index) -> Any:
-        return self._chunk.data[self._frame][index]
 
 
 class Video:
@@ -189,7 +138,7 @@ class Video:
             return result
 
     @overload
-    def __getitem__(self, index: int) -> VideoFrame:
+    def __getitem__(self, index: int) -> Array:
         ...
 
     @overload
@@ -197,15 +146,15 @@ class Video:
         ...
 
     @overload
-    def __getitem__(self, index: tuple[int]) -> VideoFrame:
+    def __getitem__(self, index: tuple[int]) -> Array:
         ...
 
     @overload
-    def __getitem__(self, index: tuple[int, int]) -> VideoRow:
+    def __getitem__(self, index: tuple[int, int]) -> Array:
         ...
 
     @overload
-    def __getitem__(self, index: tuple[int, int, int]) -> VideoPixel:
+    def __getitem__(self, index: tuple[int, int, int]) -> Array:
         ...
 
     @overload
