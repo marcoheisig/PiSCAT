@@ -394,7 +394,7 @@ class JupyterPSFs_localizationPreviewDisplay:
         if self.df_PSFs is not None:
             self.frame_num = np.sort(np.unique(df_PSFs["frame"].tolist()))
         else:
-            self.frame_num = frame_num
+            self.frame_num = [frame_num]
         self.currentFrame = 0
         self.IntSlider_width = IntSlider_width
         self.step = step

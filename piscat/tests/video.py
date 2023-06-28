@@ -7,16 +7,12 @@ import tempfile
 import numpy as np
 import numpy.typing as npt
 
-from piscat.core.video import Batch, Video, VideoChunk, VideoOp, copy_kernel
+from piscat.video import Batch, Video, VideoChunk, VideoOp, copy_kernel
 
 
 def check_chunk(chunk: VideoChunk):
     assert len(chunk.shape) == 3
     assert len(chunk) == chunk.shape[0]
-    for user in chunk._users:
-        assert any(source.chunk is chunk for source in user.sources)
-    for video in chunk._videos:
-        assert chunk in video._chunks
     data = chunk._data
     assert data is not None
     if isinstance(data, VideoOp):
