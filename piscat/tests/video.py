@@ -23,16 +23,14 @@ def check_chunk(chunk: VideoChunk):
 
 
 def check_kernel(kernel: VideoOp):
-    for target, tstart, tstop, tstep in kernel.targets:
-        assert tstep == 1
+    for target, tstart, tstop in kernel.targets:
         assert 0 <= tstart < target.shape[0]
         assert 0 <= tstop <= target.shape[0]
         data = target._data
         if isinstance(data, VideoOp):
             assert data is kernel
-    for source, sstart, sstop, sstep in kernel.sources:
+    for source, sstart, sstop in kernel.sources:
         data = source._data
-        assert sstep == 1
         assert 0 <= sstart < source.shape[0]
         assert 0 <= sstop <= source.shape[0]
         assert kernel in source._users

@@ -406,7 +406,7 @@ class Video:
         else:
             writer = FFmpegWriter(path, self.shape, self.dtype)
         position = 0
-        for chunk, cstart, cstop, _ in self.batches():
+        for chunk, cstart, cstop in self.batches():
             count = cstop - cstart
             writer.write_chunk(chunk.data[cstart:cstop], position)
             position += count

@@ -129,7 +129,6 @@ class Batch(NamedTuple):
     chunk: VideoChunk
     start: int
     stop: int
-    step: int = 1
 
 
 Batches = Sequence[Batch]
@@ -161,10 +160,10 @@ class VideoOp:
         self._targets = targets
         self._sources = sources
         self._kernel = kernel
-        for target, _, _, _ in targets:
+        for target, _, _ in targets:
             assert not target._data
             target._data = self
-        for source, _, _, _ in sources:
+        for source, _, _ in sources:
             source._users.add(self)
 
     @property
@@ -181,29 +180,29 @@ class VideoOp:
 
     def run(self) -> None:
         # Allocate all targets.
-        for target, _, _, _ in self.targets:
+        for target, _, _ in self.targets:
             assert target._data is not None
             if isinstance(target._data, VideoOp):
                 target._data = Array(shape=target.shape, dtype=target.dtype)
             assert isinstance(target._data, Array)
-        for source, _, _, _ in self.sources:
+        for source, _, _ in self.sources:
             assert isinstance(source._data, Array)
         # Run the kernel.
         self.kernel(self.targets, self.sources)
         # Mark each target as read-only.
-        for target, _, _, _ in self.targets:
+        for target, _, _ in self.targets:
             target.data.setflags(write=False)
         # Sever the connection to each source.
-        for source, _, _, _ in self.sources:
+        for source, _, _ in self.sources:
             assert isinstance(source._data, Array)
             source._users.remove(self)
 
 
 def copy_kernel(targets: Batches, sources: Batches) -> None:
     assert len(targets) == 1
-    (target, tstart, tstop, _) = targets[0]
+    (target, tstart, tstop) = targets[0]
     pos = tstart
-    for source, sstart, sstop, _ in sources:
+    for source, sstart, sstop in sources:
         count = sstop - sstart
         target[pos : pos + count] = source[sstart:sstop]
         pos += count
@@ -213,8 +212,8 @@ def copy_kernel(targets: Batches, sources: Batches) -> None:
 def get_fill_kernel(value) -> Kernel:
     def kernel(targets: Batches, sources: Batches):
         assert len(sources) == 0
-        (target, tstart, tstop, tstep) = targets[0]
-        target[tstart:tstop:tstep] = value
+        (target, tstart, tstop) = targets[0]
+        target[tstart:tstop] = value
 
     return kernel
 
@@ -223,7 +222,7 @@ def get_reader_kernel(reader: FileReader, start: int, stop: int) -> Kernel:
     def kernel(targets: Batches, sources: Batches) -> None:
         assert len(targets) == 1
         assert len(sources) == 0
-        (chunk, cstart, cstop, _) = targets[0]
+        (chunk, cstart, cstop) = targets[0]
         assert (stop - start) == (cstop - cstart)
         reader.read_chunk(chunk.data[cstart:cstop], start, stop)
 
@@ -248,7 +247,7 @@ def compute_chunks(chunks: Iterable[VideoChunk]) -> None:
         kernel = data
         if kernel not in kernels:
             kernels.add(kernel)
-            for source, _, _, _ in kernel.sources:
+            for source, _, _ in kernel.sources:
                 process(source)
             schedule.append(kernel)
 
@@ -322,13 +321,13 @@ def chunks_from_batches(
             group.append(batch)
             gstop += batch.stop - batch.start
         rest = (gstop - gstart) - clen
-        (last, lstart, lstop, lstep) = group[-1]
-        group[-1] = Batch(last, lstart, lstop - rest, lstep)
+        (last, lstart, lstop) = group[-1]
+        group[-1] = Batch(last, lstart, lstop - rest)
         yield merge_batches(group, start=cstart - ccount * f, stop=cend - ccount * f)
         # Prepare for the next iteration.
         if rest == 0:
             group = []
         else:
-            group = [Batch(last, lstop - rest, lstop, lstep)]
+            group = [Batch(last, lstop - rest, lstop)]
         gstart += clen
         ccount += 1
