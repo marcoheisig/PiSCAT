@@ -17,13 +17,13 @@ from piscat.video.evaluation import (
     BYTES_PER_CHUNK,
     Array,
     Batch,
+    Batches,
+    Kernel,
     VideoChunk,
     VideoOp,
-    chunks_from_batches,
     copy_kernel,
-    get_fill_kernel,
-    get_reader_kernel,
 )
+from piscat.video.patterns import map_batches
 
 Path = Union[str, pathlib.Path]
 
@@ -241,7 +241,7 @@ class Video:
             return Video([VideoChunk(shape=shape, dtype=dtype)], 0, 0)
         chunk_shape = (Video.plan_chunk_size(shape=shape, dtype=dtype), height, width)
         batches = itertools.chain.from_iterable(video.batches() for video in videos)
-        chunks = chunks_from_batches(
+        chunks = map_batches(
             batches, shape=chunk_shape, dtype=dtype, kernel=copy_kernel, count=length
         )
         return Video(chunks, 0, length)
@@ -269,10 +269,11 @@ class Video:
             return Video([VideoChunk(shape=shape, dtype=dtype)], 0, 0)
         chunk_size = Video.plan_chunk_size(shape=shape, dtype=dtype)
         chunks = list(
-            chunks_from_batches(
+            map_batches(
                 [Batch(VideoChunk(shape=shape, dtype=dtype, data=array), 0, f)],
                 shape=(chunk_size, h, w),
                 dtype=array.dtype,
+                kernel=copy_kernel,
             )
         )
         return Video(chunks, 0, f)
@@ -415,3 +416,23 @@ class Video:
 
 def ceildiv(a: int, b: int) -> int:
     return -(a // -b)
+
+
+def get_fill_kernel(value) -> Kernel:
+    def kernel(targets: Batches, sources: Batches):
+        assert len(sources) == 0
+        (target, tstart, tstop) = targets[0]
+        target[tstart:tstop] = value
+
+    return kernel
+
+
+def get_reader_kernel(reader: FileReader, start: int, stop: int) -> Kernel:
+    def kernel(targets: Batches, sources: Batches) -> None:
+        assert len(targets) == 1
+        assert len(sources) == 0
+        (chunk, cstart, cstop) = targets[0]
+        assert (stop - start) == (cstop - cstart)
+        reader.read_chunk(chunk.data[cstart:cstop], start, stop)
+
+    return kernel
