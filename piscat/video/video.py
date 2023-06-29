@@ -21,6 +21,7 @@ from piscat.video.evaluation import (
     Kernel,
     VideoChunk,
     VideoOp,
+    ceildiv,
     copy_kernel,
 )
 from piscat.video.patterns import map_batches
@@ -111,6 +112,10 @@ class Video:
     def chunk_offset(self):
         return self._chunk_offset
 
+    @property
+    def chunk_size(self):
+        return self.chunk_shape[0]
+
     def __array__(self):
         length = len(self)
         if length == 0:
@@ -165,35 +170,53 @@ class Video:
         """
         Return a particular part of the video.
         """
-        size = self.shape[0]
+        nframes = self.shape[0]
         (csize, h, w) = self.chunk_shape
         chunks = self._chunks
 
         def icheck(index):
-            if not (0 <= index < size):
-                raise IndexError(f"Invalid index {index} for a video with {size} frames.")
+            if not (0 <= index < nframes):
+                raise IndexError(f"Invalid index {index} for a video with {nframes} frames.")
 
         if isinstance(index, int):
             icheck(index)
             p = self.chunk_offset + index
             chunk = chunks[p // csize]
             return chunk[p % csize]
+        elif isinstance(index, EllipsisType):
+            return self
         elif isinstance(index, slice):
             istart = 0 if index.start is None else index.start
             istop = len(self) if index.stop is None else max(istart, index.stop)
             istep = 1 if index.step is None else index.step
-            assert istep == 1  # TODO
             if istart == istop:
                 return Video.from_array(Array(shape=(0, h, w), dtype=self.dtype))
-            if istart == 0 and istop == size:
+            if istart == 0 and istop == nframes and istep == 1:
                 return self
             icheck(istart)
-            count = (istop - istart) // istep
-            ilast = max(istart, istart + count - 1)
+            total = len(range(istart, istop, istep))
+            ilast = max(istart, istart + (total - 1) * istep)
             icheck(ilast)
             pstart = self.chunk_offset + istart
             plast = self.chunk_offset + ilast
-            return Video(chunks[pstart // csize : (plast // csize) + 1], pstart % csize, count)
+            offset = pstart % csize
+            if istep == 1:
+                return Video(chunks[pstart // csize : (plast // csize) + 1], offset, total)
+            else:
+                shape = (total, h, w)
+                chunk_size = Video.plan_chunk_size(shape=shape, dtype=self.dtype)
+                return Video(
+                    map_batches(
+                        self.batches(istart, istop),
+                        shape=(chunk_size, h, w),
+                        dtype=self.dtype,
+                        kernel=get_slice_kernel(istep),
+                        step=istep,
+                        count=total,
+                    ),
+                    0,
+                    total,
+                )
         elif isinstance(index, tuple):
             i0 = index[0]
             if isinstance(i0, int):
@@ -208,17 +231,24 @@ class Video:
         for index in range(len(self)):
             yield self[index]
 
-    def batches(self) -> Iterator[Batch]:
-        length = len(self)
+    def batches(self, start: int = 0, stop: int | None = None) -> Iterator[Batch]:
+        stop = len(self) if stop is None else stop
+        length = stop - start
+        if length == 0:
+            return
         chunks = self._chunks
-        nchunks = len(chunks)
-        chunk_size = self.chunk_shape[0]
+        chunk_size = self.chunk_size
         chunk_offset = self.chunk_offset
-        yield Batch(chunks[0], chunk_offset, min(chunk_size, chunk_offset + length))
-        for cn in range(1, nchunks):
-            start = 0
-            stop = min(chunk_size, chunk_offset + length - cn * chunk_size)
-            yield Batch(chunks[cn], start, stop)
+        pstart = start + chunk_offset
+        plast = stop + chunk_offset - 1
+        cstart = pstart // chunk_size
+        clast = plast // chunk_size
+        for cn in range(cstart, clast + 1):
+            yield Batch(
+                chunks[cn],
+                max(0, pstart - cn * chunk_size),
+                min(chunk_size, (plast + 1) - cn * chunk_size),
+            )
 
     @staticmethod
     def concatenate(videos: Iterable[Video]):
@@ -256,7 +286,7 @@ class Video:
         return min(f, ceildiv(BYTES_PER_CHUNK, h * w * np.dtype(dtype).itemsize))
 
     @staticmethod
-    def from_array(array: Array) -> Video:
+    def from_array(array: Array, /, chunk_size: int | None = None) -> Video:
         """
         Return a video whose contents are the same as the supplied array.
         """
@@ -267,7 +297,8 @@ class Video:
         (f, h, w) = shape
         if f == 0:
             return Video([VideoChunk(shape=shape, dtype=dtype)], 0, 0)
-        chunk_size = Video.plan_chunk_size(shape=shape, dtype=dtype)
+        if chunk_size is None:
+            chunk_size = Video.plan_chunk_size(shape=shape, dtype=dtype)
         chunks = list(
             map_batches(
                 [Batch(VideoChunk(shape=shape, dtype=dtype, data=array), 0, f)],
@@ -414,10 +445,6 @@ class Video:
         return self
 
 
-def ceildiv(a: int, b: int) -> int:
-    return -(a // -b)
-
-
 def get_fill_kernel(value) -> Kernel:
     def kernel(targets: Batches, sources: Batches):
         assert len(sources) == 0
@@ -434,5 +461,21 @@ def get_reader_kernel(reader: FileReader, start: int, stop: int) -> Kernel:
         (chunk, cstart, cstop) = targets[0]
         assert (stop - start) == (cstop - cstart)
         reader.read_chunk(chunk.data[cstart:cstop], start, stop)
+
+    return kernel
+
+
+def get_slice_kernel(step) -> Kernel:
+    def kernel(targets: Batches, sources: Batches):
+        assert len(targets) == 1
+        (target, tstart, tstop) = targets[0]
+        pos = tstart
+        offset = 0
+        for source, start, stop in sources:
+            count = len(range(start + offset, stop, step))
+            target[pos : pos + count] = source[start + offset : stop : step]
+            pos += count
+            offset = start + offset + count * step - stop
+        assert pos == tstop
 
     return kernel

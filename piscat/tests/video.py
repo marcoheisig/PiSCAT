@@ -130,6 +130,14 @@ def test_video_indexing():
                 assert np.array_equal(video[0:], array[offset : offset + length])
                 half = length // 2
                 assert np.array_equal(video[half], array[offset + half])
+    for h, w in [(50, 70), (128, 128), (10, 100)]:
+        for chunk_size in [1, 2, 3, 5, 7]:
+            for length in range(15):
+                for offset in range(0, length // 2):
+                    array = iota_frames(0, length, 1, h=h, w=w)
+                    video = Video.from_array(array, chunk_size=chunk_size)
+                    for step in range(1, 5):
+                        assert np.array_equal(video[offset::step], array[offset::step])
 
 
 def test_video_io():

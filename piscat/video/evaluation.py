@@ -197,6 +197,7 @@ class VideoOp:
         for source, _, _ in self.sources:
             assert isinstance(source._data, Array)
         # Run the kernel.
+        # print(f"Kernel: {self.targets=} <- {self.sources=}")
         self.kernel(self.targets, self.sources)
         # Mark each target as read-only.
         for target, _, _ in self.targets:
@@ -234,3 +235,7 @@ def compute_chunks(chunks: Iterable[VideoChunk]) -> None:
     # Execute the schedule.
     for kernel in tqdm(schedule, delay=0.5):
         kernel.run()
+
+
+def ceildiv(a: int, b: int) -> int:
+    return -(a // -b)
