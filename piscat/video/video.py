@@ -24,7 +24,7 @@ from piscat.video.evaluation import (
     ceildiv,
     copy_kernel,
 )
-from piscat.video.patterns import map_batches
+from piscat.video.map_batches import map_batches
 
 Path = Union[str, pathlib.Path]
 
