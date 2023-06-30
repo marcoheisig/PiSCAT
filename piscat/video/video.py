@@ -469,6 +469,10 @@ def get_reader_kernel(reader: FileReader, start: int, stop: int) -> Kernel:
 
 
 def get_slice_kernel(step) -> Kernel:
+    assert step > 0
+    if step == 1:
+        return copy_kernel
+
     def kernel(targets: Batches, sources: Batches):
         assert len(targets) == 1
         (target, tstart, tstop) = targets[0]

@@ -4,7 +4,7 @@ from typing import Iterable, Iterator
 
 import numpy as np
 
-from piscat.video.evaluation import Batch, Kernel, VideoChunk, VideoOp, ceildiv
+from piscat.video.evaluation import Batch, Kernel, VideoChunk, VideoOp, ceildiv, copy_kernel
 
 
 def map_batches(
@@ -47,6 +47,10 @@ def map_batches(
     cn = 0  # The amount of chunks that have already been created.
 
     def merge_batches(batches: list[Batch], start: int, stop: int):
+        if kernel is copy_kernel and len(batches) == 1:
+            (chunk, cstart, cstop) = batches[0]
+            if chunk.shape == shape and cstart == start and cstop == stop:
+                return chunk
         chunk = VideoChunk(shape=shape, dtype=dtype)
         assert 0 <= start <= stop <= shape[0]
         VideoOp(kernel=kernel, targets=[Batch(chunk, start, stop)], sources=batches)
