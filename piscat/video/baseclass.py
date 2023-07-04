@@ -109,8 +109,10 @@ class Video(ABC):
     @staticmethod
     def plan_chunk_size(shape: tuple[int, int, int], dtype: npt.DTypeLike):
         """
-        Return a reasonable chunk size for videos with the supplied height,
-        width, and dtype.
+        Return a reasonable chunk size for videos with the supplied shape and
+        dtype.
+
+        The result is an integer between one and the constant BYTES_PER_CHUNK.
         """
         (f, h, w) = shape
         return min(f, ceildiv(BYTES_PER_CHUNK, h * w * np.dtype(dtype).itemsize))

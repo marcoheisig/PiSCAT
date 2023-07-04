@@ -151,14 +151,17 @@ def test_video_io():
         vn = 0
         for video in [v1, v2, v3]:
             for suffix in ["npy", "raw", "mp4"]:
-                path = os.path.join(td, f"video{vn}.{suffix}")
-                vn += 1
-                video.to_file(path)
-                assert pathlib.Path(path).exists()
-                if suffix == "raw":
-                    other = Video.from_raw_file(path, video.shape, video.dtype)
-                else:
-                    other = Video.from_file(path)
-                assert video.dtype == other.dtype
-                assert video.shape == other.shape
-                assert np.allclose(video, other, atol=1e-5)
+                for flush in [True, False]:
+                    path = os.path.join(td, f"video{vn}.{suffix}")
+                    vn += 1
+                    # Write the video to a file.
+                    video.to_file(path, flush=flush)
+                    assert pathlib.Path(path).exists()
+                    # Read the video back in.
+                    if suffix == "raw":
+                        other = Video.from_raw_file(path, video.shape, video.dtype)
+                    else:
+                        other = Video.from_file(path)
+                    assert video.dtype == other.dtype
+                    assert video.shape == other.shape
+                    assert np.allclose(video, other, atol=1e-5)
