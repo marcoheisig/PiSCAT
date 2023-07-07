@@ -84,6 +84,10 @@ class Video(ABC):
     def chunk_size(self):
         return self.chunk_shape[0]
 
+    @property
+    def chunks(self):
+        return self._chunks
+
     def __repr__(self):
         return f"<Video shape={self.shape!r} dtype={self.dtype!r} id={id(self):#x}>"
 

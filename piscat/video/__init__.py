@@ -5,7 +5,7 @@ from .evaluation import Batch, VideoChunk, VideoOp, copy_kernel
 from .from_array import Video_from_array
 from .from_file import Video_from_file
 from .from_frame import Video_from_frame
-from .getitem import Video_getitem
+from .indexing import Video_indexing
 from .to_array import Video_to_array
 from .to_file import Video_to_file
 
@@ -15,7 +15,7 @@ class Video(
     Video_from_array,
     Video_from_file,
     Video_from_frame,
-    Video_getitem,
+    Video_indexing,
     Video_to_array,
     Video_to_file,
 ):

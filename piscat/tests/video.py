@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import pathlib
 import tempfile
+from itertools import chain
 
 import numpy as np
 import numpy.typing as npt
@@ -50,7 +51,7 @@ def check_video(video: Video):
         assert chunk.dtype == video.dtype
 
 
-def iota_frames(
+def iota_array(
     start: int,
     stop: int,
     step: int = 1,
@@ -93,7 +94,7 @@ def test_video_from_frame():
 def test_video_from_array():
     for h, w in [(2, 3), (128, 128)]:
         for length in range(1, 256):
-            array = iota_frames(0, length, h=h, w=w)
+            array = iota_array(0, length, h=h, w=w)
             video = Video.from_array(array)
             check_video(video)
             for index, frame in enumerate(array):
@@ -107,7 +108,7 @@ def test_video_concatenate():
             arrays = []
             for _ in range(count):
                 n = np.random.randint(20)
-                arrays.append(iota_frames(pos, pos + n, h=h, w=w, dtype=np.float64))
+                arrays.append(iota_array(pos, pos + n, h=h, w=w, dtype=np.float64))
                 pos += n
             videos = [Video.from_array(array) for array in arrays]
             video = Video.concatenate(videos)
@@ -119,29 +120,34 @@ def test_video_concatenate():
 
 
 def test_video_indexing():
-    for nchunks in range(1, 5):
-        for chunk_shape in [(1, 3, 4), (2, 3, 4), (3, 3, 4)]:
-            arrays = [np.random.random(chunk_shape) for _ in range(nchunks)]
-            chunks = [VideoChunk.from_array(array) for array in arrays]
-            array = np.concatenate(arrays, axis=0)
-            for offset in range(chunk_shape[0] - 1):
-                video = Video(chunks, offset)
-                length = len(video)
-                assert np.array_equal(video[0:], array[offset : offset + length])
-                half = length // 2
-                assert np.array_equal(video[half], array[offset + half])
-    for h, w in [(50, 70), (128, 128), (10, 100)]:
-        for chunk_size in [1, 2, 3, 5, 7]:
-            for length in range(15):
-                for offset in range(0, length // 2):
-                    array = iota_frames(0, length, 1, h=h, w=w)
-                    video = Video.from_array(array, chunk_size=chunk_size)
-                    for step in range(1, 5):
-                        assert np.array_equal(video[offset::step], array[offset::step])
+    # Reversal
+    for dim in range(7):
+        for h, w in [(10, 10), (50, 100), (100, 50), (640, 480)]:
+            array = iota_array(0, dim, h=h, w=w)
+            video = Video.from_array(array)
+            assert np.array_equal(video[::-1], array[::-1])
+    # Selecting parts of the first axis.
+    for h, w in [(3, 4), (7, 6), (50, 70)]:
+        for chunk_size in [1, 2, 3]:
+            for dim in range(4):
+                for start in chain(range(-dim - 2, dim + 2), [None]):
+                    for stop in chain(range(-dim - 2, dim + 2), [None]):
+                        for step in chain(range(-dim, -2), [None], range(1, dim)):
+                            array = iota_array(0, dim, 1, h=h, w=w)
+                            video = Video.from_array(array, chunk_size=chunk_size)
+                            assert np.array_equal(video[start:stop:step], array[start:stop:step])
+    # Selecting parts of the other axes
+    for h, w in [(3, 4), (7, 6), (50, 70)]:
+        for chunk_size in [1, 2, 3]:
+            for f in range(4):
+                array = np.random.random((f, h, w))
+                video = Video.from_array(array, chunk_size=chunk_size)
+                assert np.array_equal(video[:, 0:1, 0:1], array[:, 0:1, 0:1])
+                assert np.array_equal(video[:, ::-2, ::-3], array[:, ::-2, ::-3])
 
 
 def test_video_io():
-    a1 = iota_frames(0, 100, dtype=np.dtype("u1"))
+    a1 = iota_array(0, 100, dtype=np.dtype("u1"))
     a2 = a1.astype(np.dtype("u2")) * 256
     a3 = a1 / np.array(256, np.dtype("f4"))
     v1 = Video.from_array(a1)

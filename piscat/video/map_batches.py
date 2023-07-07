@@ -40,7 +40,7 @@ def map_batches(
     """
     batches = iter(batches)
     if count == 0:
-        raise StopIteration
+        return
     (f, h, w) = shape
     group: list[Batch] = []  # The batches that constitute the next chunk.
     gstop = 0  # The last frame in the current group.
@@ -57,7 +57,7 @@ def map_batches(
         return chunk
 
     while count is None or (cn * f - offset) < count:
-        gstart = (cn * f - offset) * step
+        gstart = max(0, (cn * f - offset) * step)
         cstart = max(cn * f, offset)
         cstop = (cn + 1) * f if not count else min((cn + 1) * f, offset + count)
         clen = cstop - cstart
@@ -75,8 +75,6 @@ def map_batches(
             (chunk, start, stop) = batch
             (cf, ch, cw) = chunk.shape
             assert 0 <= start <= stop <= cf
-            if ch != h or cw != w:
-                raise ValueError("Cannot combine chunks with different frame sizes.")
             gstop += stop - start
             if gstop > gstart:
                 group.append(Batch(chunk, max(stop - (gstop - gstart), start), stop))
