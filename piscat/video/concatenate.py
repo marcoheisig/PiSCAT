@@ -5,8 +5,8 @@ from typing import Iterable
 
 from typing_extensions import Self
 
-from piscat.video.baseclass import Video
-from piscat.video.evaluation import VideoChunk, copy_kernel
+from piscat.video.actions import Copy
+from piscat.video.baseclass import Video, precision_dtype
 from piscat.video.map_batches import map_batches
 
 
@@ -16,7 +16,7 @@ class Video_concatenate(Video):
         videos = list(videos)
         if len(videos) == 0:
             raise ValueError("Cannot concatenate zero videos.")
-        dtype = videos[0].dtype
+        precision = videos[0].precision
         length, height, width = videos[0].shape
         for video in videos[1:]:
             (f, h, w) = video.shape
@@ -24,15 +24,15 @@ class Video_concatenate(Video):
                 raise ValueError(
                     f"Cannot concatenate {height}x{width} frames and {h}x{w} frames."
                 )
-            if video.dtype != dtype:
-                raise ValueError("Cannot concatenate videos with different element types.")
+            # TODO allow concatenating videos with varying precision.
+            if video.precision != precision:
+                raise ValueError("Cannot concatenate videos with varying precision.")
             length += f
         shape = (length, height, width)
         if length == 0:
-            return cls([VideoChunk(shape=shape, dtype=dtype)], 0, 0)
-        chunk_shape = (Video.plan_chunk_size(shape=shape, dtype=dtype), height, width)
+            return cls([], shape, precision=precision)
+        chunk_shape = (Video.plan_chunk_size(shape, precision), height, width)
         batches = itertools.chain.from_iterable(video.batches() for video in videos)
-        chunks = map_batches(
-            batches, shape=chunk_shape, dtype=dtype, kernel=copy_kernel, count=length
-        )
-        return cls(chunks, 0, length)
+        dtype = precision_dtype(precision)
+        chunks = list(map_batches(batches, chunk_shape, dtype, Copy, count=length))
+        return cls(chunks, shape, chunk_offset=0, precision=precision)

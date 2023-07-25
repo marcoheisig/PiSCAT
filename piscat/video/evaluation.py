@@ -1,117 +1,113 @@
 from __future__ import annotations
 
 import weakref
-from typing import Callable, Iterable, NamedTuple, Sequence
+from abc import ABC, ABCMeta, abstractmethod
+from typing import Iterable, NamedTuple
 
 import numpy as np
 from tqdm import tqdm
 
+Dtype = np.dtype
+
 Array = np.ndarray
 
-BYTES_PER_CHUNK = 2**21
+DEBUG = True
 
 
-class VideoChunk:
+class Chunk:
     """
-    The in-memory representation of several consecutive video frames.
+    A lazily evaluated memory region.
 
-    A video chunk can have two internal representations - either its data is
+    There are two internal representations of a chunk - either its data is
     stored directly as a NumPy array, or its data is expressed as the output of
-    a particular video op.
+    a particular operation.
 
-    :param shape: A (frames, height, width) tuple describing the shape of the
-        chunk.
-    :param dtype: The NumPy dtype describing the elements of the chunk.
-    :param data: A NumPy array containing the contents of the chunk.  Computed
-        lazily.
-    :param users: A weak set of all entities (videos, operations, ...)
-        referencing this chunk.  Whenever a graph of chunks and operations is
-        evaluated, and all users of a chunk are part of that evaluation, there
-        is no need to retain the chunk's memory afterwards.
+    :param shape: A non-empty tuple describing the shape of the chunk.
+    :param dtype: The dtype of each element of the chunk.
+    :param data: A lazily computed ndarray containing the contents of the chunk.
+    :param users: A weak set of all entities referencing the chunk.  When
+        evaluating a graph of chunks, the memory of a chunk with zero users can
+        be reclaimed after its last successor has been processed.
     """
 
-    _shape: tuple[int, int, int]
-    _dtype: np.dtype
-    _data: VideoOp | Array | None
+    _shape: tuple[int, ...]
+    _dtype: Dtype
+    _data: Array | None
+    _actions: list[Action]
     _users: weakref.WeakSet
 
     def __init__(
         self,
-        shape: tuple[int, int, int],
-        dtype: np.dtype,
-        data: VideoOp | Array | None = None,
+        shape: tuple[int, ...],
+        dtype: Dtype,
+        data: Array | None = None,
     ):
-        if isinstance(data, Array):
-            assert data.shape == shape
-            assert data.dtype == dtype
         # There is no need for lazy evaluation if the array has zero elements.
         if 0 in shape:
             data = Array(shape=shape, dtype=dtype)
         self._shape = shape
         self._dtype = dtype
         self._data = data
+        self._actions = []
         self._users = weakref.WeakSet()
 
     @property
-    def shape(self) -> tuple[int, int, int]:
+    def shape(self) -> tuple[int, ...]:
         """
-        Return the shape of the video chunk as a (frames, height, width) tuple.
+        Return a tuple that is the shape of the chunk.
         """
         return self._shape
 
     @property
-    def dtype(self) -> np.dtype:
+    def dtype(self) -> Dtype:
         """
-        Return the element type of each pixel of the video chunk.
+        Return the type of each element of the chunk.
         """
         return self._dtype
 
     @property
     def data(self) -> Array:
         """
-        Return the NumPy array underlying the video chunk.
+        Return the NumPy array underlying the chunk.
 
-        Depending on the internal representation of the video chunk, this
-        operation can be a simple reference to the existing array, or involve
-        the evaluation of the entire compute graph whose root node is this video
-        chunk.  In the latter case the evaluation is cached so that all future
-        references to the video chunk's data can directly return an existing
-        array.
+        Depending on the internal representation of the chunk, this operation
+        can be a simple reference to the existing array, or involve the
+        evaluation of the entire compute graph whose root node is this chunk.
+        In the latter case the evaluation is cached so that all future
+        references to the chunk's data can directly return an existing array.
         """
-        if isinstance(self._data, Array):
-            return self._data
-        else:
+        if self._data is None:
             compute_chunks([self])
             assert isinstance(self._data, Array)
             assert self._data.shape == self._shape
             assert self._data.dtype == self._dtype
-            return self._data
+        return self._data
 
-    @staticmethod
-    def from_array(array: Array):
-        shape = array.shape
-        if len(shape) != 3:
-            raise ValueError("Only rank three arrays can be converted to chunks.")
-        return VideoChunk(shape=shape, dtype=array.dtype, data=array)
+    @property
+    def actions(self) -> list[Action]:
+        """
+        Return the actions that need to be run to initialize the chunk.
+        """
+        return self._actions
 
     def __repr__(self) -> str:
-        return f"VideoChunk({self.shape!r}, {self.dtype!r}, id={id(self):#x})"
+        return f"Chunk({self.shape!s}, {self.dtype!s}, id={id(self):#x})"
 
     def __len__(self) -> int:
         """
-        Return the number of frames in the video chunk.
+        Return the dimension of the chunk's first axis.
         """
         return self._shape[0]
 
     def __getitem__(self, index):
         """
-        Return a selection of the video chunk's data.
+        Return a selection of the chunk's data.
         """
         return self.data[index]
 
     def __setitem__(self, index, value):
         """
-        Fill a selection of the video chunk's data with the supplied value.
+        Fill a selection of the chunk's data with the supplied value.
         """
         self.data[index] = value
 
@@ -121,121 +117,98 @@ class VideoChunk:
 
 class Batch(NamedTuple):
     """
-    A batch is a selection of some part of a video chunk.
+    A batch is a selection of some part of the first axis of a chunk.
     """
 
-    chunk: VideoChunk
+    chunk: Chunk
     start: int
     stop: int
 
 
-Batches = Sequence[Batch]
+class ActionClass(ABCMeta):
+    @abstractmethod
+    def target_shapes(self, *source_shapes) -> tuple:
+        ...
+
+    @abstractmethod
+    def target_dtypes(self, *source_dtypes) -> tuple:
+        ...
 
 
-Kernel = Callable[[Batches, Batches], None]
-
-
-def copy_kernel(targets: Batches, sources: Batches) -> None:
-    assert len(targets) == 1
-    (target, tstart, tstop) = targets[0]
-    pos = tstart
-    for source, sstart, sstop in sources:
-        count = sstop - sstart
-        target[pos : pos + count] = source[sstart:sstop]
-        pos += count
-    assert pos == tstop
-
-
-class VideoOp:
-    """
-    A video op describes how the contents of some video chunks can be computed,
-    possibly depending on the contents of several other video chunks.
-
-    :param targets: A list of batches that will be written to by this kernel's
-        kernel.
-    :param sources: A list of batches that will be read from by this kernel's
-        kernel.
-    :param kernel: The callable that will be invoked by this kernel once the
-        data of one or more of its targets is accessed.
-    """
-
+class Action(ABC):
     _targets: list[Batch]
     _sources: list[Batch]
-    _kernel: Kernel
 
-    def __init__(self, kernel: Kernel, targets: list[Batch], sources: list[Batch]):
-        assert len(targets) > 0
-        # Connect this kernel with its source and target chunks.
+    def __init__(self, targets: list[Batch], sources: list[Batch]):
+        if DEBUG:
+            for schunk, sstart, sstop in sources:
+                if schunk._data is not None:
+                    continue
+                count = sstop - sstart
+                mask = np.zeros(count, np.uint8)
+                for action in schunk.actions:
+                    for tchunk, tstart, tstop in action.targets:
+                        if tchunk == schunk:
+                            istart = max(sstart, tstart)
+                            istop = min(sstop, tstop)
+                            for index in range(istart, istop):
+                                mask[index - sstart] = 1
+                for index in range(sstart, sstop):
+                    if mask[index - sstart] == 0:
+                        raise RuntimeError(f"Reference to undefined element {index}.")
+        # Connect this action to its targets.
+        for tchunk, _, _ in targets:
+            tchunk._actions.append(self)
         self._targets = targets
         self._sources = sources
-        self._kernel = kernel
-        for target, _, _ in targets:
-            assert not target._data
-            target._data = self
-        for source, _, _ in sources:
-            source._users.add(self)
 
     @property
-    def sources(self) -> list[Batch]:
-        return self._sources
-
-    @property
-    def targets(self) -> list[Batch]:
+    def targets(self):
         return self._targets
 
     @property
-    def kernel(self) -> Kernel:
-        return self._kernel
+    def sources(self):
+        return self._sources
 
-    def run(self) -> None:
-        # Allocate all targets.
-        for target, _, _ in self.targets:
-            assert target._data is not None
-            if isinstance(target._data, VideoOp):
-                target._data = Array(shape=target.shape, dtype=target.dtype)
-            assert isinstance(target._data, Array)
-        for source, _, _ in self.sources:
-            assert isinstance(source._data, Array)
-        # Run the kernel.
-        # print(f"Kernel: {self.targets=} <- {self.sources=}")
-        self.kernel(self.targets, self.sources)
-        # Mark each target as read-only.
-        for target, _, _ in self.targets:
-            target.data.setflags(write=False)
-        # Sever the connection to each source.
-        for source, _, _ in self.sources:
-            assert isinstance(source._data, Array)
-            source._users.remove(self)
+    @abstractmethod
+    def run(self):
+        ...
 
 
-def compute_chunks(chunks: Iterable[VideoChunk]) -> None:
+def compute_chunks(chunks: Iterable[Chunk]) -> None:
     """
     Ensure that all the supplied video chunks and their dependencies have their
     data and metadata computed.
     """
     # Build a schedule.
-    schedule: list[VideoOp] = []
-    kernels: set[VideoOp] = set()
+    schedule: list[Action] = []
+    visited: set[Action] = set()
 
-    def process(chunk: VideoChunk) -> None:
-        data = chunk._data
-        if data is None:
-            raise RuntimeError("Encountered a chunk with undefined contents.")
-        if isinstance(data, Array):
+    def process(chunk: Chunk) -> None:
+        if chunk._data is not None:
             return
-        kernel = data
-        if kernel not in kernels:
-            kernels.add(kernel)
-            for source, _, _ in kernel.sources:
-                process(source)
-            schedule.append(kernel)
+        actions = chunk._actions
+        if len(chunk._actions) == 0:
+            raise RuntimeError("Encountered a chunk with undefined contents.")
+        chunk._actions = []
+        for action in actions:
+            if action not in visited:
+                visited.add(action)
+                for source, _, _ in action.sources:
+                    process(source)
+                schedule.append(action)
 
-    for video_chunk in chunks:
-        process(video_chunk)
+    for chunk in chunks:
+        process(chunk)
     # Execute the schedule.
-    for kernel in tqdm(schedule, delay=0.5):
-        kernel.run()
+    for action in tqdm(schedule, delay=0.5):
+        for chunk, _, _ in action.targets:
+            allocate_chunk(chunk)
+        action.run()
 
 
-def ceildiv(a: int, b: int) -> int:
-    return -(a // -b)
+def allocate_chunk(chunk: Chunk):
+    if isinstance(chunk._data, Array):
+        return
+    else:
+        chunk._data = Array(shape=chunk.shape, dtype=chunk.dtype)

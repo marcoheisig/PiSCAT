@@ -12,15 +12,16 @@ from piscat.io import FileReader
 from piscat.io.ffmpeg import FFmpegReader
 from piscat.io.numpy import NumpyReader
 from piscat.io.raw import RawReader
-from piscat.video.baseclass import Video
-from piscat.video.evaluation import Batch, Batches, Kernel, VideoChunk, VideoOp
+from piscat.video.actions import dtype_decoder_and_precision
+from piscat.video.baseclass import Video, precision_dtype
+from piscat.video.evaluation import Action, Batch, Chunk
 
 Path = Union[str, pathlib.Path]
 
 
 class Video_from_file(Video):
     @classmethod
-    def from_file(cls, path: Path, /, chunk_size: int | None = None) -> Self:
+    def from_file(cls, path: Path) -> Self:
         """
         Return a video whose contents are read in from a file.
 
@@ -60,19 +61,21 @@ class Video_from_file(Video):
             reader = FFmpegReader(path)
         # Create the video.
         shape = reader.shape
-        dtype = reader.dtype
-        if chunk_size is None:
-            chunk_size = Video.plan_chunk_size(shape, dtype)
+        file_dtype = reader.dtype
+        decoder, precision = dtype_decoder_and_precision(file_dtype)
+        video_dtype = precision_dtype(precision)
+        chunk_size = Video.plan_chunk_size(shape, precision)
         (f, h, w) = shape
         chunks = []
         for start in range(0, f, chunk_size):
             stop = min(f, start + chunk_size)
             count = stop - start
-            chunk = VideoChunk((chunk_size, h, w), dtype)
-            kernel = get_reader_kernel(reader, start, stop)
-            VideoOp(kernel, [Batch(chunk, 0, count)], [])
-            chunks.append(chunk)
-        return cls(chunks, length=shape[0])
+            tmp = Batch(Chunk((chunk_size, h, w), file_dtype), 0, count)
+            ReaderAction(tmp, reader, start, stop)
+            target = Batch(Chunk((chunk_size, h, w), video_dtype), 0, count)
+            decoder(target, tmp)
+            chunks.append(target.chunk)
+        return cls(chunks, shape, precision=precision)
 
     @classmethod
     def from_raw_file(
@@ -80,33 +83,38 @@ class Video_from_file(Video):
         path: Path,
         shape: tuple[int, int, int],
         dtype: npt.DTypeLike,
-        /,
-        chunk_size: int | None = None,
     ) -> Self:
         if isinstance(path, str):
             path = pathlib.Path(path)
-        dtype = np.dtype(dtype)
-        reader = RawReader(path, shape, np.dtype(dtype))
-        if chunk_size is None:
-            chunk_size = Video.plan_chunk_size(shape, dtype)
+        file_dtype = np.dtype(dtype)
+        decoder, precision = dtype_decoder_and_precision(file_dtype)
+        video_dtype = precision_dtype(precision)
+        reader = RawReader(path, shape, file_dtype)
+        chunk_size = Video.plan_chunk_size(shape, precision)
         (f, h, w) = shape
         chunks = []
         for start in range(0, f, chunk_size):
             stop = min(f, start + chunk_size)
             count = stop - start
-            chunk = VideoChunk((chunk_size, h, w), dtype)
-            kernel = get_reader_kernel(reader, start, stop)
-            VideoOp(kernel, [Batch(chunk, 0, count)], [])
-            chunks.append(chunk)
-        return cls(chunks, length=shape[0])
+            tmp = Batch(Chunk((chunk_size, h, w), file_dtype), 0, count)
+            ReaderAction(tmp, reader, start, stop)
+            target = Batch(Chunk((chunk_size, h, w), video_dtype), 0, count)
+            decoder(target, tmp)
+            chunks.append(target.chunk)
+        return cls(chunks, shape, precision=precision)
 
 
-def get_reader_kernel(reader: FileReader, start: int, stop: int) -> Kernel:
-    def kernel(targets: Batches, sources: Batches) -> None:
-        assert len(targets) == 1
-        assert len(sources) == 0
-        (chunk, cstart, cstop) = targets[0]
-        assert (stop - start) == (cstop - cstart)
-        reader.read_chunk(chunk.data[cstart:cstop], start, stop)
+class ReaderAction(Action):
+    reader: FileReader
+    start: int
+    stop: int
 
-    return kernel
+    def __init__(self, target: Batch, reader: FileReader, start: int, stop: int):
+        super().__init__([target], [])
+        self.reader = reader
+        self.start = start
+        self.stop = stop
+
+    def run(self):
+        [(tchunk, tstart, tstop)] = self.targets
+        self.reader.read_chunk(tchunk.data[tstart:tstop], self.start, self.stop)

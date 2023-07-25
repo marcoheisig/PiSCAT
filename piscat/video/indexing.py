@@ -1,25 +1,24 @@
 from __future__ import annotations
 
-import pathlib
-from typing import Any, Iterator, Union, overload
+from typing import Any, Callable, Iterator, Union, overload
 
-import numpy as np
 from typing_extensions import Self
 
-from piscat.video.baseclass import Video, ceildiv
-from piscat.video.evaluation import Array, Batches, Kernel, VideoChunk, copy_kernel
+from piscat.video.actions import Copy, Reverse, Slice
+from piscat.video.baseclass import Video, ceildiv, precision_dtype
+from piscat.video.evaluation import Action, Array, Batch, Chunk
 from piscat.video.map_batches import map_batches
 
-Path = Union[str, pathlib.Path]
-
-EllipsisType = type(Ellipsis)
-
-Slice = Union[slice, EllipsisType]
+EllipsisType = Union[type(...), type(...)]  # Pyright doesn't understand a plain type(...).
 
 
 class Video_indexing(Video):
     @overload
-    def __getitem__(self, index: Slice) -> Self:
+    def __getitem__(self, index: EllipsisType) -> Self:
+        ...
+
+    @overload
+    def __getitem__(self, index: slice) -> Self:
         ...
 
     @overload
@@ -27,7 +26,7 @@ class Video_indexing(Video):
         ...
 
     @overload
-    def __getitem__(self, index: tuple[Slice]) -> Self:
+    def __getitem__(self, index: tuple[slice]) -> Self:
         ...
 
     @overload
@@ -108,16 +107,18 @@ def select(
     wslice: slice = slice(0, None),
 ) -> Video_indexing:
     (f, h, w) = video.shape
-    csize = video.chunk_size
+    chunk_size = video.chunk_size
+    precision = video.precision
     fstart, fstop, fstep, fsize = canonicalize_slice(fslice, f)
     _, _, hstep, hsize = canonicalize_slice(hslice, h)
     _, _, wstep, wsize = canonicalize_slice(wslice, w)
+    result_dtype = precision_dtype(video.precision)
     result_shape = (fsize, hsize, wsize)
     # Handle empty videos.
     if fsize == 0 or hsize == 0 or wsize == 0:
-        array = np.ndarray(shape=result_shape, dtype=video.dtype)
-        chunk = VideoChunk(shape=result_shape, dtype=video.dtype, data=array)
-        return type(video)([chunk], 0, 0)
+        array = Array(result_shape, result_dtype)
+        chunk = Chunk(result_shape, result_dtype, data=array)
+        return type(video)([chunk], result_shape, video.precision)
     # Handle references to the entire video.
     if fsize == f and fstep == 1:
         if hsize == h and hstep == 1:
@@ -136,28 +137,33 @@ def select(
     if fstep == 1 and h == hsize and w == wsize:
         pstart = video.chunk_offset + fstart
         plast = pstart + (fsize - 1) * fstep
-        offset = pstart % csize
-        cstart = pstart // csize
-        cstop = (plast // csize) + 1
-        result = type(video)(video.chunks[cstart:cstop], offset, fsize)
+        offset = pstart % chunk_size
+        cstart = pstart // chunk_size
+        cstop = (plast // chunk_size) + 1
+        result = type(video)(video.chunks[cstart:cstop], result_shape, precision, offset)
         return reverse(result) if flip else result
     # In the general case, create new chunks and use a kernel that selects only
     # the relevant parts of each Nth element of its concatenated source batches.
-    result_csize = Video.plan_chunk_size(shape=result_shape, dtype=video.dtype)
+    result_csize = Video.plan_chunk_size(result_shape, precision)
     hslice = slice(0, None) if hsize == h else hslice
     wslice = slice(0, None) if wsize == w else wslice
-    result = type(video)(
-        map_batches(
-            video.batches(fstart, fstop),
-            shape=(result_csize, hsize, wsize),
-            dtype=video.dtype,
-            kernel=get_slice_kernel(fstep, hslice, wslice),
-            step=fstep,
-            count=fsize,
-        ),
-        0,
-        fsize,
+    action: Callable[[Batch, Batch], Action]
+    if fstep == 1 and full_slice_p(hslice) and full_slice_p(wslice):
+        action = Copy
+    else:
+
+        def action(t, s):
+            return Slice(t, s, fstep, hslice, wslice)
+
+    chunks = map_batches(
+        video.batches(fstart, fstop),
+        (result_csize, hsize, wsize),
+        result_dtype,
+        action=action,
+        step=fstep,
+        count=fsize,
     )
+    result = type(video)(list(chunks), result_shape, precision)
     return reverse(result) if flip else result
 
 
@@ -188,30 +194,6 @@ def canonicalize_slice(slc: slice, dim: int) -> tuple[int, int, int, int]:
         raise ValueError(f"Not a slice: {slc}")
 
 
-def get_slice_kernel(step, hslice: slice, wslice: slice) -> Kernel:
-    assert step > 0
-    if step == 1 and full_slice_p(hslice) and full_slice_p(wslice):
-        return copy_kernel
-
-    def kernel(targets: Batches, sources: Batches):
-        assert len(targets) == 1
-        (target, tstart, tstop) = targets[0]
-        pos = tstart
-        offset = 0
-        for source, start, stop in sources:
-            count = len(range(start + offset, stop, step))
-            print(f"{source.shape=}")
-            fslice = slice(start + offset, stop, step)
-            print(f"{fslice=} {hslice=} {wslice=}")
-            print(source[fslice, hslice, wslice])
-            target[pos : pos + count, :, :] = source[start + offset : stop : step, hslice, wslice]
-            pos += count
-            offset = start + offset + count * step - stop
-        assert pos == tstop
-
-    return kernel
-
-
 def reverse(video) -> Video_indexing:
     """
     Return a video whose order of frames is reversed.
@@ -222,28 +204,20 @@ def reverse(video) -> Video_indexing:
     old_offset = video.chunk_offset
     new_offset = video.chunk_size * len(video.chunks) - vsize - old_offset
     return type(video)(
-        map_batches(
-            reversed(list(video.batches())),
-            shape=video.chunk_shape,
-            dtype=video.dtype,
-            kernel=reverse_kernel,
-            count=vsize,
-            offset=new_offset,
+        list(
+            map_batches(
+                reversed(list(video.batches())),
+                shape=video.chunk_shape,
+                dtype=video.dtype,
+                action=Reverse,
+                count=vsize,
+                offset=new_offset,
+            )
         ),
+        video.shape,
+        video.precision,
         new_offset,
-        vsize,
     )
-
-
-def reverse_kernel(targets: Batches, sources: Batches):
-    [(target, tstart, tstop)] = targets
-    pos = tstart
-    for source, sstart, sstop in sources:
-        count = sstop - sstart
-        ssize = len(source)
-        target[pos : pos + count] = source[sstop - ssize - 1 : sstart - ssize - 1 : -1]
-        pos += count
-    assert pos == tstop
 
 
 def isntuple(obj, n: int):
@@ -254,12 +228,7 @@ def isntuple(obj, n: int):
 
 
 def isslice(obj):
-    if obj is ...:
-        return True
-    elif isinstance(obj, slice):
-        return True
-    else:
-        return False
+    return isinstance(obj, slice)
 
 
 def full_slice_p(slc: slice):

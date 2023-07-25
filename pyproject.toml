@@ -45,6 +45,7 @@ dependencies = [
     "scikit_learn",
     "scipy>=0.14.0",
     "subprocess.run",
+    "taichi>=1.6",
     "tensorflow",
     "tifffile",
     "tqdm",

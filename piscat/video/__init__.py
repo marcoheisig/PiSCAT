@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from .change_precision import Video_change_precision
 from .concatenate import Video_concatenate
-from .evaluation import Batch, VideoChunk, VideoOp, copy_kernel
+from .evaluation import Action, Batch, Chunk
 from .from_array import Video_from_array
 from .from_file import Video_from_file
 from .from_frame import Video_from_frame
@@ -11,6 +12,7 @@ from .to_file import Video_to_file
 
 
 class Video(
+    Video_change_precision,
     Video_concatenate,
     Video_from_array,
     Video_from_file,
@@ -43,4 +45,4 @@ class Video(
     ...
 
 
-__all__ = ["Batch", "Video", "VideoChunk", "VideoOp", "copy_kernel"]
+__all__ = ["Video", "Chunk", "Batch", "Action"]

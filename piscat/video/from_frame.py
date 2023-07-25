@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing_extensions import Self
 
-from piscat.video.baseclass import Video
-from piscat.video.evaluation import Array, Batch, Batches, Kernel, VideoChunk, VideoOp, ceildiv
+from piscat.video.actions import Fill, dtype_decoder_and_precision
+from piscat.video.baseclass import Video, ceildiv, precision_dtype
+from piscat.video.evaluation import Array, Batch, Chunk
 
 
 class Video_from_frame(Video):
@@ -18,23 +19,18 @@ class Video_from_frame(Video):
         if len(frame.shape) != 2:
             raise ValueError(f"Invalid frame: {frame}")
         h, w = frame.shape
-        dtype = frame.dtype
-        csize = Video.plan_chunk_size(shape=(length, h, w), dtype=dtype)
-        cshape = (csize, h, w)
-        nchunks = ceildiv(length, csize)
-        chunks = [VideoChunk(cshape, dtype) for _ in range(nchunks)]
-        for cn in range(nchunks - 1):
-            VideoOp(get_fill_kernel(frame), [Batch(chunks[cn], 0, csize)], [])
-        if nchunks > 0:
-            cn = nchunks - 1
-            VideoOp(get_fill_kernel(frame), [Batch(chunks[cn], 0, length - cn * csize)], [])
-        return cls(chunks, 0, length)
-
-
-def get_fill_kernel(value) -> Kernel:
-    def kernel(targets: Batches, sources: Batches):
-        assert len(sources) == 0
-        (target, tstart, tstop) = targets[0]
-        target[tstart:tstop] = value
-
-    return kernel
+        shape = (length, h, w)
+        frame_dtype = frame.dtype
+        decoder, precision = dtype_decoder_and_precision(frame_dtype)
+        chunk_size = Video.plan_chunk_size(shape, precision)
+        video_dtype = precision_dtype(precision)
+        source = Batch(Chunk((1, h, w), frame_dtype, frame.reshape((1, h, w))), 0, 1)
+        tmp = Batch(Chunk((1, h, w), video_dtype), 0, 1)
+        decoder(tmp, source)
+        cshape = (chunk_size, h, w)
+        nchunks = ceildiv(length, chunk_size)
+        chunks = [Chunk(cshape, video_dtype) for _ in range(nchunks)]
+        for cn in range(nchunks):
+            count = chunk_size if cn != nchunks - 1 else length - cn * chunk_size
+            Fill(Batch(chunks[cn], 0, count), tmp)
+        return cls(chunks, shape, precision)
