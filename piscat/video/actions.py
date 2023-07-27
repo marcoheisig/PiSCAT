@@ -4,7 +4,7 @@ from typing import Callable
 
 import numpy as np
 
-from piscat.video.baseclass import Precision
+from piscat.video.baseclass import ExtendedPrecision, Precision, precision_dtype
 from piscat.video.evaluation import Action, Batch, Dtype
 
 ### Copying Data
@@ -244,12 +244,20 @@ def dtype_decoder_and_precision(dtype: Dtype) -> tuple[Decoder, Precision]:
 class ChangePrecision(Action):
     shift: int
 
-    def __init__(self, target: Batch, source: Batch, shift: int):
+    def __init__(
+        self,
+        target: Batch,
+        source: Batch,
+        target_precision: ExtendedPrecision,
+        source_precision: ExtendedPrecision,
+    ):
         (tchunk, tstart, tstop) = target
         (schunk, sstart, sstop) = source
         assert tstop - tstart == sstop - sstart
+        assert tchunk.dtype == precision_dtype(target_precision)
+        assert schunk.dtype == precision_dtype(source_precision)
         super().__init__([target], [source])
-        self.shift = shift
+        self.shift = target_precision - source_precision
 
     def run(self):
         [(tchunk, tstart, tstop)] = self.targets

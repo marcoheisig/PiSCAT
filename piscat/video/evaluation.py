@@ -188,8 +188,6 @@ def compute_chunks(chunks: Iterable[Chunk]) -> None:
         if chunk._data is not None:
             return
         actions = chunk._actions
-        if len(chunk._actions) == 0:
-            raise RuntimeError("Encountered a chunk with undefined contents.")
         chunk._actions = []
         for action in actions:
             if action not in visited:

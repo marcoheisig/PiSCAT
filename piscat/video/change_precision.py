@@ -17,7 +17,7 @@ class Video_change_precision(Video):
                     self.batches(),
                     (new_chunk_size, h, w),
                     precision_dtype(precision),
-                    lambda t, s: ChangePrecision(t, s, new_precision - precision),
+                    lambda t, s: ChangePrecision(t, s, new_precision, precision),
                     count=f,
                 )
             ),

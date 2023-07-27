@@ -101,24 +101,17 @@ class FFmpegWriter(FileWriter):
 
     def _write_chunk(self, array: np.ndarray, position: int) -> None:
         process = self._process
+        assert process is not None
+        assert process.stdin is not None
         heap = self._heap
         array = np.transpose(convert_data(array, self._tmp_dtype), (0, 2, 1))
         count = len(array)
-        if position == self._position:
-            assert process is not None
-            assert process.stdin is not None
-            process.stdin.write(array.tobytes())
-            self._position += count
-            while len(heap) > 0:
-                write = heap[0]
-                if not write.start == self._position:
-                    break
-                heapq.heappop(heap)
-                write.array.tofile(process.stdin)
-                self._position += len(write.array)
-        else:
-            write = self.DelayedWrite(position, position + count, array)
-            heapq.heappush(self._heap, write)
+        write = self.DelayedWrite(position, position + count, array)
+        heapq.heappush(heap, write)
+        while heap and heap[0].start == self._position:
+            write = heapq.heappop(heap)
+            process.stdin.write(write.array.tobytes())
+            self._position += len(write.array)
 
 
 pix_fmt_u1 = "gray"

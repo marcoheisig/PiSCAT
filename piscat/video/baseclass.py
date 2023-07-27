@@ -16,12 +16,12 @@ ExtendedPrecision = Union[Precision, Literal[25, 26, 27, 28, 29, 30, 31, 32]]
 BYTES_PER_CHUNK = 2**21
 
 
-def precision_dtype(precision: Precision) -> Dtype:
+def precision_dtype(precision: ExtendedPrecision) -> Dtype:
     if precision <= 8:
         return np.dtype(np.uint8)
     elif precision <= 16:
         return np.dtype(np.uint16)
-    elif precision <= 24:
+    elif precision <= 32:
         return np.dtype(np.uint32)
     else:
         raise ValueError(f"Invalid video precision: {precision}")

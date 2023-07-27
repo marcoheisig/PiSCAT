@@ -144,22 +144,26 @@ def test_video_indexing():
     # Selecting parts of the other axes
     for h, w in [(3, 4), (7, 6), (50, 70), (128, 128)]:
         for f in range(4):
-            array = (np.random.random((f, h, w)) * 256).astype(np.uint8)
-            video = Video.from_array(array)
-            assert np.array_equal(video[:, 0:1, 0:1], array[:, 0:1, 0:1])
-            assert np.array_equal(video[:, ::-2, ::-3], array[:, ::-2, ::-3])
+            for dtype, precision in [(np.uint8, 8), (np.uint16, 16)]:
+                array = (np.random.random((f, h, w)) * 2**precision).astype(dtype)
+                video = Video.from_array(array)
+                assert np.array_equal(video[:, 0:1, 0:1], array[:, 0:1, 0:1])
+                assert np.array_equal(video[:, ::-2, ::-3], array[:, ::-2, ::-3])
 
 
 def test_video_io():
-    a1 = iota_array(0, 100, dtype=np.dtype("u1"))
-    a2 = a1.astype(np.dtype("u2")) * 256
-    a3 = a1.astype(np.dtype("u4")) * 256**3
-    v1 = Video.from_array(a1)
-    v2 = Video.from_array(a2)
-    v3 = Video.from_array(a3)
+    a1 = np.zeros((100, 2, 2), dtype=np.uint8)
+    a2 = np.zeros((100, 2, 2), dtype=np.uint8)
+    a2.fill(255)
+    a3 = np.zeros((100, 2, 2), dtype=np.uint32)
+    a3.fill(2**32 - 1)
+    a4 = iota_array(0, 100, dtype=np.dtype("u1"))
+    a5 = a4.astype(np.uint16) * 256
+    a6 = a4.astype(np.uint32) * 256**3
     with tempfile.TemporaryDirectory() as td:
         vn = 0
-        for video in [v1, v2, v3]:
+        for array in [a1, a2, a3, a4, a5, a6]:
+            video = Video.from_array(array)
             for suffix in ["npy", "raw", "mp4"]:
                 for flush in [True, False]:
                     path = os.path.join(td, f"video{vn}.{suffix}")
@@ -174,4 +178,4 @@ def test_video_io():
                         other = Video.from_file(path)
                     assert video.precision == other.precision
                     assert video.shape == other.shape
-                    assert np.allclose(video, other, rtol=0.01)
+                    assert np.allclose(video, other, rtol=0.001)

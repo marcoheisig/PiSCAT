@@ -40,13 +40,13 @@ def map_batches(
     batches = iter(batches)
     if count == 0:
         return
-    (f, h, w) = shape
     group: list[Batch] = []  # The batches that constitute the next chunk.
     gstop = 0  # The last frame in the current group.
+    cs = shape[0]
     cn = 0  # The amount of chunks that have already been created.
 
     def make_chunk(batches: list[Batch], tstart: int, tstop: int):
-        assert 0 <= tstart <= tstop <= f
+        assert 0 <= tstart <= tstop <= cs
         # Optimization: Eliminate superfluous copy operations.
         if action is Copy and len(batches) == 1:
             [(schunk, sstart, sstop)] = batches
@@ -59,13 +59,12 @@ def map_batches(
             count = source.stop - source.start
             action(Batch(chunk, position, position + count), source)
             position += count
-        assert (position - tstop) < step
         return chunk
 
-    while count is None or (cn * f - offset) < count:
-        gstart = max(0, (cn * f - offset) * step)
-        cstart = max(cn * f, offset)
-        cstop = (cn + 1) * f if not count else min((cn + 1) * f, offset + count)
+    while count is None or (cn * cs - offset) < count:
+        gstart = max(0, (cn * cs - offset) * step)
+        cstart = max(cn * cs, offset)
+        cstop = (cn + 1) * cs if not count else min((cn + 1) * cs, offset + count)
         clen = cstop - cstart
         # Gather enough source chunks to fill one target chunk.
         while (amount := ceildiv(gstop, step) - ceildiv(gstart, step)) < clen:
@@ -89,7 +88,7 @@ def map_batches(
             (chunk, start, stop) = group[-1]
             group[-1] = Batch(chunk, start, stop - rest)
         # Turn all batches of the current group into a chunk.
-        yield make_chunk(group, cstart - cn * f, cstop - cn * f)
+        yield make_chunk(group, cstart - cn * cs, cstop - cn * cs)
         # Prepare for the next iteration.
         if rest > 0:
             group = [Batch(chunk, stop - rest, stop)]  # type: ignore

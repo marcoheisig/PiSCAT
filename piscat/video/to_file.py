@@ -66,7 +66,7 @@ class Video_to_file(Video):
                 tmp = source
             else:
                 tmp = Batch(Chunk((count, *shape[1:]), dtype), 0, count)
-                ChangePrecision(tmp, source, dtype.itemsize * 8 - self.precision)
+                ChangePrecision(tmp, source, new_precision, self.precision)
             WriterAction(target, tmp, writer, position)
             position += count
         compute_chunks([target.chunk])
