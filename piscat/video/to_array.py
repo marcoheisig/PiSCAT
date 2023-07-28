@@ -2,23 +2,24 @@ from __future__ import annotations
 
 import numpy as np
 
-from piscat.video.baseclass import Video, precision_dtype
+from piscat.video.baseclass import precision_next_power_of_two
+from piscat.video.change_precision import Video_change_precision
 from piscat.video.evaluation import Array, compute_chunks
 
 
-class Video_to_array(Video):
+class Video_to_array(Video_change_precision):
     def to_array(self) -> Array:
-        length = len(self)
-        chunks = self._chunks
-        chunk_offset = self.chunk_offset
+        video = self.change_precision(precision_next_power_of_two(self.precision))
+        length = len(video)
+        chunks = video._chunks
+        chunk_offset = video.chunk_offset
         nchunks = len(chunks)
         if nchunks == 1:
             return chunks[0][chunk_offset : chunk_offset + length]
         else:
             compute_chunks(chunks)
-            (chunk_size, h, w) = self.chunk_shape
-            dtype = precision_dtype(self.precision)
-            result = np.empty(shape=(length, h, w), dtype=dtype)
+            (chunk_size, h, w) = video.chunk_shape
+            result = np.empty(shape=(length, h, w), dtype=video.dtype)
             pos = 0
             for cn in range(nchunks):
                 chunk = chunks[cn]

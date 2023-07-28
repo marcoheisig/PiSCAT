@@ -4,19 +4,21 @@ import os
 import pathlib
 from typing import Union
 
+from typing_extensions import Self
+
 from piscat.io import FileWriter
 from piscat.io.ffmpeg import FFmpegWriter
 from piscat.io.numpy import NumpyWriter
 from piscat.io.raw import RawWriter
-from piscat.video.actions import ChangePrecision
-from piscat.video.baseclass import Video, precision_dtype
+from piscat.video.baseclass import precision_dtype, precision_next_power_of_two
+from piscat.video.change_precision import Video_change_precision
 from piscat.video.evaluation import Action, Batch, Chunk, compute_chunks
 
 Path = Union[str, pathlib.Path]
 
 
-class Video_to_file(Video):
-    def to_file(self, path: Path, /, overwrite: bool = False, flush: bool = False) -> Video:
+class Video_to_file(Video_change_precision):
+    def to_file(self, path: Path, /, overwrite: bool = False, flush: bool = False) -> Self:
         """
         Write the video to the specified file.
 
@@ -40,15 +42,15 @@ class Video_to_file(Video):
                 raise ValueError(f"The file named {path} already exists.")
         suffix = path.suffix
         extension = suffix[1:] if suffix.startswith(".") else "npy"
-        shape = self.shape
-        dtype = precision_dtype(self.precision)
+        video = self
         writer: FileWriter
         if extension == "":
             raise ValueError(f"Couldn't determine the type of {path} (missing suffix).")
         elif extension == "raw":
-            writer = RawWriter(path, shape, dtype)
+            writer = RawWriter(path, video.shape, video.dtype)
         elif extension == "npy":
-            writer = NumpyWriter(path, shape, dtype)
+            video = video.change_precision(precision_next_power_of_two(video.precision))
+            writer = NumpyWriter(path, video.shape, video.dtype)
         elif extension == "fits":
             raise NotImplementedError()
         elif extension == "fli":
@@ -56,18 +58,13 @@ class Video_to_file(Video):
         elif extension == "h5":
             raise NotImplementedError()
         else:
-            writer = FFmpegWriter(path, shape, dtype)
+            video = video.change_precision(precision_next_power_of_two(video.precision))
+            writer = FFmpegWriter(path, video.shape, video.dtype)
         target = Batch(Chunk((1,), precision_dtype(1)), 0, 1)
-        new_precision = dtype.itemsize * 8
         position = 0
         for source in self.batches():
             count = source.stop - source.start
-            if new_precision == self.precision:
-                tmp = source
-            else:
-                tmp = Batch(Chunk((count, *shape[1:]), dtype), 0, count)
-                ChangePrecision(tmp, source, new_precision, self.precision)
-            WriterAction(target, tmp, writer, position)
+            WriterAction(target, source, writer, position)
             position += count
         compute_chunks([target.chunk])
         if not flush:

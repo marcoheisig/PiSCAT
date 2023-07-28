@@ -152,12 +152,12 @@ def test_video_indexing():
 
 
 def test_video_io():
-    a1 = np.zeros((100, 2, 2), dtype=np.uint8)
-    a2 = np.zeros((100, 2, 2), dtype=np.uint8)
+    a1 = np.zeros((101, 2, 2), dtype=np.uint8)
+    a2 = np.zeros((102, 2, 2), dtype=np.uint8)
     a2.fill(255)
-    a3 = np.zeros((100, 2, 2), dtype=np.uint32)
+    a3 = np.zeros((103, 2, 2), dtype=np.uint32)
     a3.fill(2**32 - 1)
-    a4 = iota_array(0, 100, dtype=np.dtype("u1"))
+    a4 = iota_array(0, 104, dtype=np.uint8)
     a5 = a4.astype(np.uint16) * 256
     a6 = a4.astype(np.uint32) * 256**3
     with tempfile.TemporaryDirectory() as td:

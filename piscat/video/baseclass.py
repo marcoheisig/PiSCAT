@@ -7,24 +7,47 @@ import numpy as np
 
 from piscat.video.evaluation import Batch, Chunk, Dtype
 
-Precision = Literal[
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24
-]
-
-ExtendedPrecision = Union[Precision, Literal[25, 26, 27, 28, 29, 30, 31, 32]]
+_P1 = Literal[1, 2, 3, 4, 5, 6, 7, 8]
+_P2 = Literal[9, 10, 11, 12, 13, 14, 15, 16]
+_P3 = Literal[17, 18, 19, 20, 21, 22, 23, 24]
+_P4 = Literal[25, 26, 27, 28, 29, 30, 31, 32]
+Precision = Union[_P1, _P2, _P3, _P4]
 
 BYTES_PER_CHUNK = 2**21
 
 
-def precision_dtype(precision: ExtendedPrecision) -> Dtype:
+def precision_dtype(precision: Precision) -> Dtype:
     if precision <= 8:
         return np.dtype(np.uint8)
-    elif precision <= 16:
+    if precision <= 16:
         return np.dtype(np.uint16)
-    elif precision <= 32:
+    if precision <= 32:
         return np.dtype(np.uint32)
-    else:
-        raise ValueError(f"Invalid video precision: {precision}")
+    raise ValueError(f"Invalid video precision: {precision}")
+
+
+def dtype_precision(dtype: Dtype) -> Precision:
+    if dtype == np.dtype(np.uint8):
+        return 8
+    if dtype == np.dtype(np.uint16):
+        return 16
+    if dtype == np.dtype(np.uint32):
+        return 32
+    raise ValueError(f"Invalid video dtype: {dtype}")
+
+
+def precision_next_power_of_two(precision: Precision) -> Precision:
+    if precision <= 8:
+        return 8
+    if precision <= 16:
+        return 16
+    if precision <= 32:
+        return 32
+    raise ValueError(f"Invalid video precision: {precision}")
+
+
+def ceildiv(a: int, b: int) -> int:
+    return -(a // -b)
 
 
 class Video(ABC):
@@ -165,7 +188,3 @@ class Video(ABC):
         (f, h, w) = shape
         bytes_per_frame = h * w * ceildiv(precision, 8)
         return min(f, ceildiv(BYTES_PER_CHUNK, bytes_per_frame))
-
-
-def ceildiv(a: int, b: int) -> int:
-    return -(a // -b)

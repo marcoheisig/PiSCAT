@@ -4,7 +4,7 @@ from typing import Callable
 
 import numpy as np
 
-from piscat.video.baseclass import ExtendedPrecision, Precision, precision_dtype
+from piscat.video.baseclass import Precision, precision_dtype
 from piscat.video.evaluation import Action, Batch, Dtype
 
 ### Copying Data
@@ -90,40 +90,16 @@ class DecodeArray(Action):
         super().__init__([target], [source])
 
 
-class DecodeU8Array(DecodeArray):
-    def __init__(self, target: Batch, source: Batch):
-        assert target.chunk.dtype == np.dtype(np.uint8)
-        assert source.chunk.dtype == np.dtype(np.uint8)
-        super().__init__(target, source)
-
-    def run(self):
-        [(tchunk, tstart, tstop)] = self.targets
-        [(schunk, sstart, sstop)] = self.sources
-        tchunk[tstart:tstop] = schunk[sstart:sstop]
-
-
-class DecodeU32Array(DecodeArray):
-    def __init__(self, target: Batch, source: Batch):
-        assert target.chunk.dtype == np.dtype(np.uint32)
-        assert source.chunk.dtype == np.dtype(np.uint32)
-        super().__init__(target, source)
-
-    def run(self):
-        [(tchunk, tstart, tstop)] = self.targets
-        [(schunk, sstart, sstop)] = self.sources
-        tchunk[tstart:tstop] = schunk[sstart:sstop] >> 8
-
-
 class DecodeU64Array(DecodeArray):
     def __init__(self, target: Batch, source: Batch):
-        assert target.chunk.dtype == np.dtype(np.uint64)
+        assert target.chunk.dtype == np.dtype(np.uint32)
         assert source.chunk.dtype == np.dtype(np.uint64)
         super().__init__(target, source)
 
     def run(self):
         [(tchunk, tstart, tstop)] = self.targets
         [(schunk, sstart, sstop)] = self.sources
-        tchunk[tstart:tstop] = schunk[sstart:sstop] >> 40
+        tchunk[tstart:tstop] = schunk[sstart:sstop] >> 32
 
 
 class DecodeI8Array(DecodeArray):
@@ -159,7 +135,7 @@ class DecodeI32Array(DecodeArray):
     def run(self):
         [(tchunk, tstart, tstop)] = self.targets
         [(schunk, sstart, sstop)] = self.sources
-        tchunk[tstart:tstop] = (schunk[sstart:sstop].view(np.uint32) + 2**31) >> 8
+        tchunk[tstart:tstop] = schunk[sstart:sstop].view(np.uint32) + 2**31
 
 
 class DecodeI64Array(DecodeArray):
@@ -171,7 +147,7 @@ class DecodeI64Array(DecodeArray):
     def run(self):
         [(tchunk, tstart, tstop)] = self.targets
         [(schunk, sstart, sstop)] = self.sources
-        tchunk[tstart:tstop] = (schunk[sstart:sstop].view(np.uint64) + 2**63) >> 40
+        tchunk[tstart:tstop] = (schunk[sstart:sstop].view(np.uint64) + 2**63) >> 32
 
 
 class DecodeF32Array(DecodeArray):
@@ -183,7 +159,7 @@ class DecodeF32Array(DecodeArray):
     def run(self):
         [(tchunk, tstart, tstop)] = self.targets
         [(schunk, sstart, sstop)] = self.sources
-        tchunk[tstart:tstop] = (np.clip(schunk[sstart:sstop], 0.0, 1.0) * 2**24).astype(
+        tchunk[tstart:tstop] = (np.clip(schunk[sstart:sstop], 0.0, 1.0) * 2**32).astype(
             np.uint32
         )
 
@@ -197,7 +173,7 @@ class DecodeF64Array(DecodeArray):
     def run(self):
         [(tchunk, tstart, tstop)] = self.targets
         [(schunk, sstart, sstop)] = self.sources
-        tchunk[tstart:tstop] = (np.clip(schunk[sstart:sstop], 0.0, 1.0) * 2**24).astype(
+        tchunk[tstart:tstop] = (np.clip(schunk[sstart:sstop], 0.0, 1.0) * 2**32).astype(
             np.uint32
         )
 
@@ -215,9 +191,9 @@ def dtype_decoder_and_precision(dtype: Dtype) -> tuple[Decoder, Precision]:
         if bits == 16:
             return (Copy, 16)
         if bits == 32:
-            return (DecodeU32Array, 24)
+            return (Copy, 32)
         if bits == 64:
-            return (DecodeU64Array, 24)
+            return (DecodeU64Array, 32)
     # Signed integers.
     if kind == "i":
         if bits == 8:
@@ -225,15 +201,15 @@ def dtype_decoder_and_precision(dtype: Dtype) -> tuple[Decoder, Precision]:
         if bits == 16:
             return (DecodeI16Array, 16)
         if bits == 32:
-            return (DecodeI32Array, 24)
+            return (DecodeI32Array, 32)
         if bits == 64:
-            return (DecodeI64Array, 24)
+            return (DecodeI64Array, 32)
     # Floating-point numbers.
     if kind == "f":
         if bits == 32:
-            return (DecodeF32Array, 24)
+            return (DecodeF32Array, 32)
         if bits == 64:
-            return (DecodeF64Array, 24)
+            return (DecodeF64Array, 32)
     # Everything else.
     raise ValueError(f"Cannot convert {dtype} arrays to videos.")
 
@@ -248,8 +224,8 @@ class ChangePrecision(Action):
         self,
         target: Batch,
         source: Batch,
-        target_precision: ExtendedPrecision,
-        source_precision: ExtendedPrecision,
+        target_precision: Precision,
+        source_precision: Precision,
     ):
         (tchunk, tstart, tstop) = target
         (schunk, sstart, sstop) = source

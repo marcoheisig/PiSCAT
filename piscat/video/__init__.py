@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from .change_precision import Video_change_precision
 from .concatenate import Video_concatenate
 from .evaluation import Action, Batch, Chunk
 from .from_array import Video_from_array
@@ -12,7 +11,6 @@ from .to_file import Video_to_file
 
 
 class Video(
-    Video_change_precision,
     Video_concatenate,
     Video_from_array,
     Video_from_file,
