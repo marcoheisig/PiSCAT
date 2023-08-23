@@ -114,6 +114,7 @@ ignore = [
     "B008", # function calls in argument defaults
     "E722", # bare exception
     "E741", # variables named I, O, or l
+    "E731", # assign a lambda expression to a variable
 ]
 
 # [tool.pytest.ini_options]

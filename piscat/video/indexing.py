@@ -151,9 +151,7 @@ def select(
     if fstep == 1 and full_slice_p(hslice) and full_slice_p(wslice):
         action = Copy
     else:
-
-        def action(t, s):
-            return Slice(t, s, fstep, hslice, wslice)
+        action = lambda t, s: Slice(t, s, fstep, hslice, wslice)
 
     chunks = map_batches(
         video.batches(fstart, fstop),

@@ -159,9 +159,8 @@ class DecodeF32Array(DecodeArray):
     def run(self):
         [(tchunk, tstart, tstop)] = self.targets
         [(schunk, sstart, sstop)] = self.sources
-        tchunk[tstart:tstop] = (np.clip(schunk[sstart:sstop], 0.0, 1.0) * 2**32).astype(
-            np.uint32
-        )
+        data = schunk[sstart:sstop] * 2**32
+        tchunk[tstart:tstop] = np.clip(data, 0, 2**32 - 1).astype(np.uint32)
 
 
 class DecodeF64Array(DecodeArray):
@@ -173,9 +172,8 @@ class DecodeF64Array(DecodeArray):
     def run(self):
         [(tchunk, tstart, tstop)] = self.targets
         [(schunk, sstart, sstop)] = self.sources
-        tchunk[tstart:tstop] = (np.clip(schunk[sstart:sstop], 0.0, 1.0) * 2**32).astype(
-            np.uint32
-        )
+        data = schunk[sstart:sstop] * 2**32
+        tchunk[tstart:tstop] = np.clip(data, 0, 2**32 - 1).astype(np.uint32)
 
 
 Decoder = Callable[[Batch, Batch], Action]
