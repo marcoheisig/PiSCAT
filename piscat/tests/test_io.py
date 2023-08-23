@@ -71,13 +71,18 @@ def test_io():
                         assert np.array_equal(array, other)
 
 
-def array_somewhat_similar(a1: np.ndarray, a2: np.ndarray):
+def array_somewhat_similar(a1: np.ndarray, a2: np.ndarray, tolerance=0.15, ignore=0.01):
+    """
+    Return whether the two supplied arrays have the same shape, and roughly
+    similar content in that only a certain percentage of values is more than a
+    certain fraction of the range of the underlying data type apart.
+    """
     if a1.shape != a2.shape:
         return False
     if a1.dtype != a2.dtype:
         return False
     (lo, hi) = dtype_limits(a1.dtype)
-    tolerance = np.asarray((hi - lo) * 0.15)
+    tolerance = np.asarray((hi - lo) * tolerance)
     difference = np.minimum(a1 - a2, a2 - a1)
     outliers = (difference > tolerance).sum()
-    return outliers < (0.01 * a1.size)
+    return outliers < (ignore * a1.size)
