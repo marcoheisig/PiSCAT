@@ -26,6 +26,7 @@ dependencies = [
     "GitPython",
     "h5py",
     "imageio-ffmpeg",
+    "ffmpeg-python",
     "ipywidgets",
     "joblib",
     "matplotlib",
