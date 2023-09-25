@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from piscat.video.baseclass import precision_next_power_of_two
+from piscat.video.actions import precision_next_power_of_two
 from piscat.video.change_precision import Video_change_precision
 from piscat.video.evaluation import Array, compute_chunks
 

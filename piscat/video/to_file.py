@@ -10,7 +10,7 @@ from piscat.io import FileWriter
 from piscat.io.ffmpeg import FFmpegWriter
 from piscat.io.numpy import NumpyWriter
 from piscat.io.raw import RawWriter
-from piscat.video.baseclass import precision_dtype, precision_next_power_of_two
+from piscat.video.actions import precision_dtype, precision_next_power_of_two
 from piscat.video.change_precision import Video_change_precision
 from piscat.video.evaluation import Action, Batch, Chunk, compute_chunks
 

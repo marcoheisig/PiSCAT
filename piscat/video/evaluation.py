@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import weakref
 from abc import ABC, ABCMeta, abstractmethod
-from typing import Iterable, NamedTuple
+from typing import Iterable, Iterator, NamedTuple, Sequence
 
 import numpy as np
 from tqdm import tqdm
@@ -210,3 +210,21 @@ def allocate_chunk(chunk: Chunk):
         return
     else:
         chunk._data = Array(shape=chunk.shape, dtype=chunk.dtype)
+
+
+def batches_from_chunks(
+    chunks: Sequence[Chunk], start: int = 0, stop: int | None = None
+) -> Iterator[Batch]:
+    stop = sum(chunk.shape[0] for chunk in chunks) if stop is None else stop
+    length = stop - start
+    if length == 0:
+        return
+    position = 0
+    for chunk in chunks:
+        size = chunk.shape[0]
+        batch_start = 0 if position > start else start - position
+        batch_stop = size if position + size < stop else stop - position
+        if batch_start < batch_stop:
+            yield Batch(chunk, batch_start, batch_stop)
+        position += size
+    assert position >= length

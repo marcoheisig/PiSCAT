@@ -1,49 +1,12 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import Iterator, Literal, Union
+from typing import Iterator
 
-import numpy as np
-
-from piscat.video.evaluation import Batch, Chunk, Dtype
-
-_P1 = Literal[1, 2, 3, 4, 5, 6, 7, 8]
-_P2 = Literal[9, 10, 11, 12, 13, 14, 15, 16]
-_P3 = Literal[17, 18, 19, 20, 21, 22, 23, 24]
-_P4 = Literal[25, 26, 27, 28, 29, 30, 31, 32]
-Precision = Union[_P1, _P2, _P3, _P4]
+from piscat.video.actions import precision_dtype
+from piscat.video.evaluation import Batch, Chunk, Dtype, batches_from_chunks
 
 BYTES_PER_CHUNK = 2**21
-
-
-def precision_dtype(precision: Precision) -> Dtype:
-    if precision <= 8:
-        return np.dtype(np.uint8)
-    if precision <= 16:
-        return np.dtype(np.uint16)
-    if precision <= 32:
-        return np.dtype(np.uint32)
-    raise ValueError(f"Invalid video precision: {precision}")
-
-
-def dtype_precision(dtype: Dtype) -> Precision:
-    if dtype == np.dtype(np.uint8):
-        return 8
-    if dtype == np.dtype(np.uint16):
-        return 16
-    if dtype == np.dtype(np.uint32):
-        return 32
-    raise ValueError(f"Invalid video dtype: {dtype}")
-
-
-def precision_next_power_of_two(precision: Precision) -> Precision:
-    if precision <= 8:
-        return 8
-    if precision <= 16:
-        return 16
-    if precision <= 32:
-        return 32
-    raise ValueError(f"Invalid video precision: {precision}")
 
 
 def ceildiv(a: int, b: int) -> int:
@@ -73,7 +36,7 @@ class Video(ABC):
     """
 
     _shape: tuple[int, int, int]
-    _precision: Precision
+    _precision: int
     _chunks: list[Chunk]
     _chunk_offset: int
 
@@ -81,7 +44,7 @@ class Video(ABC):
         self,
         chunks: list[Chunk],
         shape: tuple[int, int, int],
-        precision: Precision = 16,
+        precision: int = 16,
         chunk_offset: int = 0,
     ):
         (f, h, w) = shape
@@ -120,7 +83,7 @@ class Video(ABC):
         return precision_dtype(self.precision)
 
     @property
-    def precision(self) -> Precision:
+    def precision(self) -> int:
         """
         Return the number of bits of information per pixel of the video.
         """
@@ -159,26 +122,14 @@ class Video(ABC):
         return f"<Video shape={self.shape!r} precision={self.precision!r} id={id(self):#x}>"
 
     def batches(self, start: int = 0, stop: int | None = None) -> Iterator[Batch]:
-        stop = len(self) if stop is None else stop
-        length = stop - start
-        if length == 0:
-            return
-        chunks = self._chunks
-        chunk_size = self.chunk_size
-        chunk_offset = self.chunk_offset
-        pstart = start + chunk_offset
-        plast = stop + chunk_offset - 1
-        cstart = pstart // chunk_size
-        clast = plast // chunk_size
-        for cn in range(cstart, clast + 1):
-            yield Batch(
-                chunks[cn],
-                max(0, pstart - cn * chunk_size),
-                min(chunk_size, (plast + 1) - cn * chunk_size),
-            )
+        if stop is None:
+            stop = len(self)
+        return batches_from_chunks(
+            self.chunks, self.chunk_offset + start, self.chunk_offset + stop
+        )
 
     @staticmethod
-    def plan_chunk_size(shape: tuple[int, int, int], precision: Precision):
+    def plan_chunk_size(shape: tuple[int, int, int], precision: int):
         """
         Return a reasonable chunk size for videos with the supplied shape and
         precision.

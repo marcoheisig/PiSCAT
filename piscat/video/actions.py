@@ -1,16 +1,35 @@
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Iterable
 
 import numpy as np
 
-from piscat.video.baseclass import Precision, precision_dtype
-from piscat.video.evaluation import Action, Batch, Dtype
+from piscat.video.evaluation import Action, Batch, Chunk, Dtype
+
+FLOAT32 = np.dtype(np.float32)
+FLOAT64 = np.dtype(np.float64)
+INT8 = np.dtype(np.int8)
+INT16 = np.dtype(np.int16)
+INT32 = np.dtype(np.int32)
+INT64 = np.dtype(np.int64)
+UINT8 = np.dtype(np.uint8)
+UINT16 = np.dtype(np.uint16)
+UINT32 = np.dtype(np.uint32)
+UINT64 = np.dtype(np.uint64)
+
 
 ### Copying Data
 
 
 class Copy(Action):
+    """
+    An action that encapsulates the process of copying elements from a source
+    batch to a target batch of the same size.
+
+    :param targets: A list containing the target batch being copied to.
+    :param sources: A list containing the source batch being copied from.
+    """
+
     def __init__(self, target: Batch, source: Batch):
         (tchunk, tstart, tstop) = target
         (schunk, sstart, sstop) = source
@@ -25,6 +44,15 @@ class Copy(Action):
 
 
 class Fill(Action):
+    """
+    An action that encapsulates the process of filling all entries of a target
+    batch with the sole entry of a source batch.
+
+    :param targets: A list containing the target batch being filled.
+    :param sources: A list with a single batch that contains one entry that is
+        the value being written to each entry of the target batch.
+    """
+
     def __init__(self, target: Batch, source: Batch):
         (tchunk, tstart, tstop) = target
         (schunk, sstart, sstop) = source
@@ -92,8 +120,8 @@ class DecodeArray(Action):
 
 class DecodeU64Array(DecodeArray):
     def __init__(self, target: Batch, source: Batch):
-        assert target.chunk.dtype == np.dtype(np.uint32)
-        assert source.chunk.dtype == np.dtype(np.uint64)
+        assert target.chunk.dtype == UINT32
+        assert source.chunk.dtype == UINT64
         super().__init__(target, source)
 
     def run(self):
@@ -104,8 +132,8 @@ class DecodeU64Array(DecodeArray):
 
 class DecodeI8Array(DecodeArray):
     def __init__(self, target: Batch, source: Batch):
-        assert target.chunk.dtype == np.dtype(np.uint8)
-        assert source.chunk.dtype == np.dtype(np.int8)
+        assert target.chunk.dtype == UINT8
+        assert source.chunk.dtype == INT8
         super().__init__(target, source)
 
     def run(self):
@@ -116,8 +144,8 @@ class DecodeI8Array(DecodeArray):
 
 class DecodeI16Array(DecodeArray):
     def __init__(self, target: Batch, source: Batch):
-        assert target.chunk.dtype == np.dtype(np.uint16)
-        assert source.chunk.dtype == np.dtype(np.int16)
+        assert target.chunk.dtype == UINT16
+        assert source.chunk.dtype == INT16
         super().__init__(target, source)
 
     def run(self):
@@ -128,8 +156,8 @@ class DecodeI16Array(DecodeArray):
 
 class DecodeI32Array(DecodeArray):
     def __init__(self, target: Batch, source: Batch):
-        assert target.chunk.dtype == np.dtype(np.uint32)
-        assert source.chunk.dtype == np.dtype(np.int32)
+        assert target.chunk.dtype == UINT32
+        assert source.chunk.dtype == INT32
         super().__init__(target, source)
 
     def run(self):
@@ -140,8 +168,8 @@ class DecodeI32Array(DecodeArray):
 
 class DecodeI64Array(DecodeArray):
     def __init__(self, target: Batch, source: Batch):
-        assert target.chunk.dtype == np.dtype(np.uint64)
-        assert source.chunk.dtype == np.dtype(np.int64)
+        assert target.chunk.dtype == UINT64
+        assert source.chunk.dtype == INT64
         super().__init__(target, source)
 
     def run(self):
@@ -152,8 +180,8 @@ class DecodeI64Array(DecodeArray):
 
 class DecodeF32Array(DecodeArray):
     def __init__(self, target: Batch, source: Batch):
-        assert target.chunk.dtype == np.dtype(np.uint32)
-        assert source.chunk.dtype == np.dtype(np.float32)
+        assert target.chunk.dtype == UINT32
+        assert source.chunk.dtype == FLOAT32
         super().__init__(target, source)
 
     def run(self):
@@ -165,8 +193,8 @@ class DecodeF32Array(DecodeArray):
 
 class DecodeF64Array(DecodeArray):
     def __init__(self, target: Batch, source: Batch):
-        assert target.chunk.dtype == np.dtype(np.uint32)
-        assert source.chunk.dtype == np.dtype(np.float64)
+        assert target.chunk.dtype == UINT32
+        assert source.chunk.dtype == FLOAT64
         super().__init__(target, source)
 
     def run(self):
@@ -179,7 +207,7 @@ class DecodeF64Array(DecodeArray):
 Decoder = Callable[[Batch, Batch], Action]
 
 
-def dtype_decoder_and_precision(dtype: Dtype) -> tuple[Decoder, Precision]:
+def dtype_decoder_and_precision(dtype: Dtype) -> tuple[Decoder, int]:
     kind = dtype.kind
     bits = 8 * dtype.itemsize
     # Unsigned integers.
@@ -212,7 +240,43 @@ def dtype_decoder_and_precision(dtype: Dtype) -> tuple[Decoder, Precision]:
     raise ValueError(f"Cannot convert {dtype} arrays to videos.")
 
 
-### Change Video Precision
+### Changing Video Precision
+
+
+def precision_dtype(precision: int) -> Dtype:
+    if precision <= 8:
+        return UINT8
+    if precision <= 16:
+        return UINT16
+    if precision <= 32:
+        return UINT32
+    if precision <= 64:
+        return UINT64
+    raise ValueError(f"Invalid precision: {precision}")
+
+
+def dtype_precision(dtype: Dtype) -> int:
+    if dtype == UINT8:
+        return 8
+    if dtype == UINT16:
+        return 16
+    if dtype == UINT32:
+        return 32
+    if dtype == UINT64:
+        return 64
+    raise ValueError(f"Invalid dtype: {dtype}")
+
+
+def precision_next_power_of_two(precision: int) -> int:
+    if precision <= 8:
+        return 8
+    if precision <= 16:
+        return 16
+    if precision <= 32:
+        return 32
+    if precision <= 64:
+        return 64
+    raise ValueError(f"Invalid precision: {precision}")
 
 
 class ChangePrecision(Action):
@@ -222,8 +286,8 @@ class ChangePrecision(Action):
         self,
         target: Batch,
         source: Batch,
-        target_precision: Precision,
-        source_precision: Precision,
+        target_precision: int,
+        source_precision: int,
     ):
         (tchunk, tstart, tstop) = target
         (schunk, sstart, sstop) = source
@@ -240,3 +304,118 @@ class ChangePrecision(Action):
             tchunk[tstart:tstop] = schunk[sstart:sstop] >> -self.shift
         else:
             tchunk[tstart:tstop] = schunk[sstart:sstop] << self.shift
+
+
+### Calculating the Rolling Average
+
+
+class Sum(Action):
+    def __init__(self, target: Batch, sources: list[Batch]):
+        (tchunk, tstart, tstop) = target
+        assert tchunk.dtype == UINT64
+        assert tstop - tstart == 1
+        count = 0
+        dtype = None
+        shape = tchunk.shape[1:]
+        for schunk, sstart, sstop in sources:
+            assert schunk.shape[1:] == shape
+            if dtype is None:
+                dtype = schunk.dtype
+            else:
+                assert schunk.dtype == dtype
+            count += sstop - sstart
+        if count > 0:
+            assert dtype is not None
+            assert dtype.kind == "u"
+            assert dtype.itemsize * 8 + np.log2(count) <= 64
+        super().__init__([target], sources)
+
+    def run(self):
+        [(tchunk, tstart, tstop)] = self.targets
+        tchunk[tstart:tstop] = 0
+        for schunk, sstart, sstop in self.sources:
+            tchunk[tstart] += np.sum(schunk[sstart, sstop], axis=0, dtype=np.uint64)
+
+
+class ForwardRollingAverage(Action):
+    def __init__(
+        self,
+        target: Batch,
+        osum: Batch,
+        left: Batch,
+        right: Batch,
+        isum: Batch,
+        divisor: int,
+        factor: int = 1,
+    ):
+        (tchunk, tstart, tstop) = target
+        (ochunk, ostart, ostop) = osum
+        (lchunk, lstart, lstop) = left
+        (rchunk, rstart, rstop) = right
+        (ichunk, istart, istop) = isum
+        assert istop - istart == ostop - ostart == 1
+        assert tstop - tstart == lstop - lstart == rstop - rstart
+        assert ochunk.dtype == ichunk.dtype == UINT64
+        assert rchunk.dtype == lchunk.dtype
+        super().__init__([target, osum], [left, right, isum])
+        self.divisor = divisor
+        self.factor = factor
+
+    def run(self):
+        [(tchunk, tstart, tstop), (ochunk, ostart, _)] = self.targets
+        [(lchunk, lstart, _), (rchunk, rstart, _), (ichunk, istart, _)] = self.sources
+        ochunk[ostart] = ichunk[istart]
+        for i in range(tstop - tstart):
+            tchunk[tstart + i] = (ochunk[ostart] * self.factor) // self.divisor
+            ochunk[ostart] -= lchunk[lstart + i]
+            ochunk[ostart] += rchunk[rstart + i]
+
+
+# Mapping Over Batches
+
+
+DUMMY_CHUNK = Chunk((0, 1, 1), UINT8)
+
+
+def Map(action: Callable, *iterables: Iterable[Batch]) -> None:
+    "Apply the supplied action on data from all the supplied batches."
+    nargs = len(iterables)
+    iterators = [iter(iterable) for iterable in iterables]
+    chunks: list[Chunk] = [DUMMY_CHUNK] * nargs
+    starts: list[int] = [0] * nargs
+    stops: list[int] = [0] * nargs
+    exhausted: list[bool] = [False] * nargs
+
+    def probe(index) -> int:
+        """
+        Returns how many consecutive elements can be accessed in that index.  If
+        there are zero remaining elements, but the iterator hasn't been
+        exhausted, load the next batch from that iterator.
+        """
+        if exhausted[index]:
+            return 0
+        while (count := (stops[index] - starts[index])) == 0:
+            try:
+                (chunk, start, stop) = next(iterators[index])
+            except StopIteration:
+                exhausted[index] = True
+                return 0
+            chunks[index] = chunk
+            starts[index] = start
+            stops[index] = stop
+        return count
+
+    def pop(index, amount) -> Batch:
+        """
+        Returns a batch over the selected amount of consecutive elements in that
+        index, and advance the start of that index accordingly.
+        """
+        assert stops[index] >= starts[index] + amount
+        batch = Batch(chunks[index], starts[index], starts[index] + amount)
+        starts[index] += amount
+        return batch
+
+    while (amount := min(probe(index) for index in range(nargs))) > 0:
+        action(*[pop(index, amount) for index in range(nargs)])
+    if not all(exhausted):
+        raise RuntimeError("Attempt to map over sequences of varying length.")

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from piscat.video.actions import ChangePrecision
-from piscat.video.baseclass import Precision, Video, precision_dtype
+from piscat.video.baseclass import Video, precision_dtype
 from piscat.video.map_batches import map_batches
 
 
 class Video_change_precision(Video):
-    def change_precision(self, precision: Precision):
+    def change_precision(self, precision: int):
         new_chunk_size = self.plan_chunk_size(self.shape, precision)
         (f, h, w) = self.shape
         return type(self)(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from piscat.video.rolling_average import Video_rolling_average
+
 from .concatenate import Video_concatenate
 from .evaluation import Action, Batch, Chunk
 from .from_array import Video_from_array
@@ -16,6 +18,7 @@ class Video(
     Video_from_file,
     Video_from_frame,
     Video_indexing,
+    Video_rolling_average,
     Video_to_array,
     Video_to_file,
 ):
