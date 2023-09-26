@@ -85,6 +85,9 @@ build-backend = "hatchling.build"
 [tool.hatch.version]
 path = "piscat/__init__.py"
 
+[tool.hatch.envs.dev]
+features = ["dev", "test"]
+
 [tool.hatch.build.targets.sdist]
 include = ["/piscat"]
 
