@@ -22,6 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "astropy",
+    "filetype",
     "flifile",
     "h5py",
     "imageio-ffmpeg",

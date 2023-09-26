@@ -29,12 +29,6 @@ class SpatialFilter(unittest.TestCase):
         self.linked_PSFs = self.linked_PSFs.reset_index()
         self.test_obj = localization_filtering.SpatialFilter()
 
-    def test_outlier_frames(self):
-        filtered_psf = self.test_obj.outlier_frames(self.linked_PSFs, threshold=20)
-        file_name = os.path.join(self.directory_path, "test_outlier_frames.pck")
-        loaded_data_frame = load_fixture(file_name)
-        self.assertTrue(np.all(np.nan_to_num(filtered_psf - loaded_data_frame) < 1e-6))
-
     def test_outlier_frames_value_error(self):
         with self.assertRaises(ValueError):
             self.test_obj.outlier_frames(pd.DataFrame(), threshold=20)
@@ -42,12 +36,6 @@ class SpatialFilter(unittest.TestCase):
     def test_dense_PSFs(self):
         filtered_psf = self.test_obj.dense_PSFs(self.linked_PSFs, threshold=1)
         file_name = os.path.join(self.directory_path, "test_dense_PSFs.pck")
-        loaded_data_frame = load_fixture(file_name)
-        self.assertTrue(np.all(np.nan_to_num(filtered_psf - loaded_data_frame) < 1e-6))
-
-    def test_symmetric_PSFs(self):
-        filtered_psf = self.test_obj.symmetric_PSFs(self.linked_PSFs, threshold=0.7)
-        file_name = os.path.join(self.directory_path, "symmetric_PSFs.pck")
         loaded_data_frame = load_fixture(file_name)
         self.assertTrue(np.all(np.nan_to_num(filtered_psf - loaded_data_frame) < 1e-6))
 

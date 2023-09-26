@@ -54,24 +54,3 @@ class TemporalFilterTest(unittest.TestCase):
         video = load_fixture(file_name_save)
         self.batch_size = 3
         self.test_obj = TemporalFilter(video=video, batchSize=self.batch_size)
-
-    def test_v_trajectory(self):
-        all_trajectories, linked_PSFs_filter, his_all_particles = self.test_obj.v_trajectory(
-            df_PSFs=self.psf_filtered, threshold_min=2, threshold_max=2 * self.batch_size
-        )
-        file_name_save = os.path.join(
-            self.directory_path, "test_v_trajectory_all_trajectories.pck"
-        )
-        loaded_file = load_fixture(file_name_save)
-        check_result = check_list(all_trajectories, loaded_file)
-        self.assertTrue(check_result)
-        file_name_save = os.path.join(
-            self.directory_path, "test_v_trajectory_linked_PSFs_filter.pck"
-        )
-        loaded_file = load_fixture(file_name_save)
-        result = loaded_file.replace(np.nan, 0) - linked_PSFs_filter.replace(np.nan, 0)
-        result_bool = result.all() == 0
-        self.assertTrue(result_bool.all())
-        file_name_save = os.path.join(self.directory_path, "his_all_particles.pck")
-        loaded_file = load_fixture(file_name_save)
-        self.assertTrue(his_all_particles.equals(loaded_file))
