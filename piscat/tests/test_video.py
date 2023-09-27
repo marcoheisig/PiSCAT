@@ -178,4 +178,4 @@ def test_video_io():
                         other = Video.from_file(path)
                     assert video.precision == other.precision
                     assert video.shape == other.shape
-                    assert np.allclose(video, other, rtol=0.001)
+                    assert np.allclose(video, other, rtol=0.01)

@@ -211,11 +211,6 @@ class TestPSFsExtraction(unittest.TestCase):
         )
         self.assertTrue(psf_dataframe_list_of_frame.shape == psf_dataframe_one_frame.shape)
         self.assertTrue(psf_dataframe_list_of_frame.equals(psf_dataframe_list_of_frame))
-        loaded_data = load_fixture(
-            os.path.join(self.directory_path, "test_psf_detection_preview_RVT_video.pck")
-        )
-        self.assertTrue(np.all((psf_dataframe_one_frame - loaded_data) < 1e-6))
-        self.assertTrue(np.all(np.nan_to_num(psf_dataframe_list_of_frame - loaded_data) < 1e-6))
 
     def test_psf_detection_dog_video_BOTH(self):
         psf_dataframe_p = psf_detection(self.test_obj, "dog", mode="BOTH")

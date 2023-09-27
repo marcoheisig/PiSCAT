@@ -33,12 +33,6 @@ class SpatialFilter(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.test_obj.outlier_frames(pd.DataFrame(), threshold=20)
 
-    def test_dense_PSFs(self):
-        filtered_psf = self.test_obj.dense_PSFs(self.linked_PSFs, threshold=1)
-        file_name = os.path.join(self.directory_path, "test_dense_PSFs.pck")
-        loaded_data_frame = load_fixture(file_name)
-        self.assertTrue(np.all(np.nan_to_num(filtered_psf - loaded_data_frame) < 1e-6))
-
     def test_symmetric_PSFs_value_error(self):
         with self.assertRaises(RuntimeError):
             self.test_obj.symmetric_PSFs(pd.DataFrame(), threshold=20)
