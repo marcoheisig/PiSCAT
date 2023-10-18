@@ -22,6 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "astropy",
+    "dask[complete]",
     "filetype",
     "flifile",
     "h5py",

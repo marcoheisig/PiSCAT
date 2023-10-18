@@ -1,26 +1,24 @@
 from __future__ import annotations
 
-from piscat.video.rolling_average import Video_rolling_average
-
+from .change_precision import Video_change_precision
 from .concatenate import Video_concatenate
-from .evaluation import Action, Batch, Chunk
 from .from_array import Video_from_array
-from .from_file import Video_from_file
-from .from_frame import Video_from_frame
+from .from_raw_file import Video_from_raw_file
 from .indexing import Video_indexing
+from .rolling_average import Video_rolling_average
 from .to_array import Video_to_array
-from .to_file import Video_to_file
 
 
 class Video(
-    Video_concatenate,
-    Video_from_array,
-    Video_from_file,
-    Video_from_frame,
+    Video_to_array,
     Video_indexing,
     Video_rolling_average,
-    Video_to_array,
-    Video_to_file,
+    # Video_from_file,
+    # Video_to_file,
+    Video_from_raw_file,
+    Video_concatenate,
+    Video_change_precision,
+    Video_from_array,
 ):
     """
     An efficient collection of video frames.
@@ -46,4 +44,4 @@ class Video(
     ...
 
 
-__all__ = ["Video", "Chunk", "Batch", "Action"]
+__all__ = ["Video"]

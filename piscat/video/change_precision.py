@@ -1,24 +1,24 @@
 from __future__ import annotations
 
-from piscat.video.actions import ChangePrecision
-from piscat.video.baseclass import Video, precision_dtype
-from piscat.video.map_batches import map_batches
+import operator
+
+from dask.array.core import elemwise
+
+from piscat.video.baseclass import MAX_PRECISION, MIN_PRECISION, Video, precision_dtype
 
 
 class Video_change_precision(Video):
     def change_precision(self, precision: int):
-        new_chunk_size = self.plan_chunk_size(self.shape, precision)
-        (f, h, w) = self.shape
-        return type(self)(
-            list(
-                map_batches(
-                    self.batches(),
-                    (new_chunk_size, h, w),
-                    precision_dtype(precision),
-                    lambda t, s: ChangePrecision(t, s, precision, self.precision),
-                    count=f,
-                )
-            ),
-            self.shape,
-            precision,
-        )
+        dtype = precision_dtype(precision)
+        if precision == self.precision:
+            return self
+        elif MIN_PRECISION <= precision < self.precision:
+            shift = self.precision - precision
+            array = elemwise(operator.rshift, self._array, shift, dtype=dtype)
+            return type(self)(array, precision)
+        elif MAX_PRECISION >= precision > self.precision:
+            shift = precision - self.precision
+            array = elemwise(operator.lshift, self._array.astype(dtype), shift)
+            return type(self)(array, precision)
+        else:
+            raise TypeError(f"Invalid video precision: {precision}")

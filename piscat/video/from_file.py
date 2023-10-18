@@ -3,6 +3,8 @@ from __future__ import annotations
 import pathlib
 from typing import Union
 
+import dask
+import dask.array as da
 import filetype
 import numpy as np
 import numpy.typing as npt
@@ -11,15 +13,38 @@ from typing_extensions import Self
 from piscat.io import FileReader
 from piscat.io.ffmpeg import FFmpegReader
 from piscat.io.numpy import NumpyReader
-from piscat.io.raw import RawReader
-from piscat.video.actions import dtype_decoder_and_precision
-from piscat.video.baseclass import Video, precision_dtype
-from piscat.video.evaluation import Action, Batch, Chunk
+from piscat.video.baseclass import Video
 
 Path = Union[str, pathlib.Path]
 
 
 class Video_from_file(Video):
+    @classmethod
+    def from_raw_file(
+        cls,
+        path: Path,
+        shape: tuple[int, int, int],
+        dtype: npt.DTypeLike,
+    ) -> Self:
+        if isinstance(path, str):
+            path = pathlib.Path(path)
+        dtype = np.dtype(dtype)
+        (f, h, w) = shape
+        bytes_per_frame = h * w * dtype.itemsize
+        bytes_per_chunk = 1024 * 1024 * 128
+        frames_per_chunk = max(1, bytes_per_chunk // bytes_per_frame)
+        load = dask.delayed(_chunk_from_raw_file)
+        chunks = []
+        for position in range(0, shape[0], frames_per_chunk):
+            chunk_size = min(frames_per_chunk, shape[0] - position)
+            offset = position * h * w * dtype.itemsize
+            shape = (chunk_size, h, w)
+            chunk = dask.array.from_delayed(
+                load(path, offset=offset, shape=shape, dtype=dtype), shape=shape, dtype=dtype
+            )
+            chunks.append(chunk)
+        return cls.from_array(da.concatenate(chunks, axis=0))
+
     @classmethod
     def from_file(cls, path: Path) -> Self:
         """
@@ -60,61 +85,8 @@ class Video_from_file(Video):
         else:
             reader = FFmpegReader(path)
         # Create the video.
-        shape = reader.shape
-        file_dtype = reader.dtype
-        decoder, precision = dtype_decoder_and_precision(file_dtype)
-        video_dtype = precision_dtype(precision)
-        chunk_size = Video.plan_chunk_size(shape, precision)
-        (f, h, w) = shape
-        chunks = []
-        for start in range(0, f, chunk_size):
-            stop = min(f, start + chunk_size)
-            count = stop - start
-            tmp = Batch(Chunk((chunk_size, h, w), file_dtype), 0, count)
-            ReaderAction(tmp, reader, start, stop)
-            target = Batch(Chunk((chunk_size, h, w), video_dtype), 0, count)
-            decoder(target, tmp)
-            chunks.append(target.chunk)
-        return cls(chunks, shape, precision=precision)
-
-    @classmethod
-    def from_raw_file(
-        cls,
-        path: Path,
-        shape: tuple[int, int, int],
-        dtype: npt.DTypeLike,
-    ) -> Self:
-        if isinstance(path, str):
-            path = pathlib.Path(path)
-        file_dtype = np.dtype(dtype)
-        decoder, precision = dtype_decoder_and_precision(file_dtype)
-        video_dtype = precision_dtype(precision)
-        reader = RawReader(path, shape, file_dtype)
-        chunk_size = Video.plan_chunk_size(shape, precision)
-        (f, h, w) = shape
-        chunks = []
-        for start in range(0, f, chunk_size):
-            stop = min(f, start + chunk_size)
-            count = stop - start
-            tmp = Batch(Chunk((chunk_size, h, w), file_dtype), 0, count)
-            ReaderAction(tmp, reader, start, stop)
-            target = Batch(Chunk((chunk_size, h, w), video_dtype), 0, count)
-            decoder(target, tmp)
-            chunks.append(target.chunk)
-        return cls(chunks, shape, precision=precision)
+        raise NotImplementedError()
 
 
-class ReaderAction(Action):
-    reader: FileReader
-    start: int
-    stop: int
-
-    def __init__(self, target: Batch, reader: FileReader, start: int, stop: int):
-        super().__init__([target], [])
-        self.reader = reader
-        self.start = start
-        self.stop = stop
-
-    def run(self):
-        [(tchunk, tstart, tstop)] = self.targets
-        self.reader.read_chunk(tchunk.data[tstart:tstop], self.start, self.stop)
+def _chunk_from_raw_file(filename, offset, shape, dtype):
+    data = np.memmap(filename, mode="r", shape=shape, dtype=dtype, offset=offset)

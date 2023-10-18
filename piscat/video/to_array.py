@@ -1,38 +1,34 @@
 from __future__ import annotations
 
-import numpy as np
+import dask.array as da
 
-from piscat.video.actions import precision_next_power_of_two
+from piscat.video.baseclass import FLOAT32, FLOAT64, dtype_bits
 from piscat.video.change_precision import Video_change_precision
-from piscat.video.evaluation import Array, compute_chunks
 
 
 class Video_to_array(Video_change_precision):
-    def to_array(self) -> Array:
-        video = self.change_precision(precision_next_power_of_two(self.precision))
-        length = len(video)
-        chunks = video._chunks
-        chunk_offset = video.chunk_offset
-        nchunks = len(chunks)
-        if nchunks == 1:
-            return chunks[0][chunk_offset : chunk_offset + length]
-        else:
-            compute_chunks(chunks)
-            (chunk_size, h, w) = video.chunk_shape
-            result = np.empty(shape=(length, h, w), dtype=video.dtype)
-            pos = 0
-            for cn in range(nchunks):
-                chunk = chunks[cn]
-                start = chunk_offset if cn == 0 else 0
-                stop = (
-                    (chunk_offset + length) - cn * chunk_size
-                    if cn == (nchunks - 1)
-                    else chunk_size
-                )
-                count = stop - start
-                result[pos : pos + count] = chunk[start:stop]
-                pos += count
-            return result
+    def to_array(self, dtype=None):
+        return array_from_video_data(self._array, self.precision, dtype)
 
-    def __array__(self) -> Array:
+    def __array__(self):
         return self.to_array()
+
+
+def array_from_video_data(array, precision, dtype) -> da.Array:
+    dtype = array.dtype if dtype is None else dtype
+    if dtype == FLOAT32:
+        return (array.astype(dtype) / (2**precision - 1)).compute()
+    elif dtype == FLOAT64:
+        return (array.astype(dtype) / (2**precision - 1)).compute()
+    elif dtype.kind == "u":
+        shift = dtype_bits(dtype) - precision
+        if shift == 0:
+            return array.compute()
+        elif shift > 0:
+            return (array << +shift).compute()
+        else:
+            return (array >> -shift).compute()
+    elif dtype.kind == "i":
+        raise NotImplementedError()
+    else:
+        raise ValueError(f"Invalid dtype: {dtype}")

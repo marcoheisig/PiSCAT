@@ -10,9 +10,8 @@ from piscat.io import FileWriter
 from piscat.io.ffmpeg import FFmpegWriter
 from piscat.io.numpy import NumpyWriter
 from piscat.io.raw import RawWriter
-from piscat.video.actions import precision_dtype, precision_next_power_of_two
+from piscat.video.baseclass import precision_next_power_of_two
 from piscat.video.change_precision import Video_change_precision
-from piscat.video.evaluation import Action, Batch, Chunk, compute_chunks
 
 Path = Union[str, pathlib.Path]
 
@@ -60,27 +59,4 @@ class Video_to_file(Video_change_precision):
         else:
             video = video.change_precision(precision_next_power_of_two(video.precision))
             writer = FFmpegWriter(path, video.shape, video.dtype)
-        target = Batch(Chunk((1,), precision_dtype(1)), 0, 1)
-        position = 0
-        for source in self.batches():
-            count = source.stop - source.start
-            WriterAction(target, source, writer, position)
-            position += count
-        compute_chunks([target.chunk])
-        if not flush:
-            return self
-        return self  # TODO flush
-
-
-class WriterAction(Action):
-    writer: FileWriter
-    position: int
-
-    def __init__(self, target: Batch, source: Batch, writer: FileWriter, position: int):
-        super().__init__([target], [source])
-        self.writer = writer
-        self.position = position
-
-    def run(self):
-        [(schunk, sstart, sstop)] = self.sources
-        self.writer.write_chunk(schunk[sstart:sstop], self.position)
+        raise NotImplementedError()

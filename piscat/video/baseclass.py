@@ -1,16 +1,82 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import Iterator
 
-from piscat.video.actions import precision_dtype
-from piscat.video.evaluation import Batch, Chunk, Dtype, batches_from_chunks
+import dask.array as da
+import numpy as np
 
-BYTES_PER_CHUNK = 2**21
+# Video-related constants.
+
+BYTES_PER_CHUNK = 2**26
+MIN_PRECISION = 0
+MAX_PRECISION = 64
+FLOAT32 = np.dtype(np.float32)
+FLOAT64 = np.dtype(np.float64)
+FLOAT128 = np.dtype(np.float128)
+INT8 = np.dtype(np.int8)
+INT16 = np.dtype(np.int16)
+INT32 = np.dtype(np.int32)
+INT64 = np.dtype(np.int64)
+UINT8 = np.dtype(np.uint8)
+UINT16 = np.dtype(np.uint16)
+UINT32 = np.dtype(np.uint32)
+UINT64 = np.dtype(np.uint64)
+
+
+# Video-related functions.
+
+
+def dtype_bits(dtype: np.dtype):
+    return dtype.itemsize * 8
+
+
+def precision_next_power_of_two(precision: int) -> int:
+    if precision < 0:
+        raise ValueError(f"Invalid precision: {precision}")
+    elif precision <= 8:
+        return 8
+    elif precision <= 16:
+        return 16
+    elif precision <= 32:
+        return 32
+    elif precision <= 64:
+        return 64
+    else:
+        raise ValueError(f"Invalid precision: {precision}")
+
+
+def precision_dtype(precision: int) -> np.dtype:
+    if precision < 0:
+        raise ValueError(f"Invalid precision: {precision}")
+    elif precision <= 8:
+        return UINT8
+    elif precision <= 16:
+        return UINT16
+    elif precision <= 32:
+        return UINT32
+    elif precision <= 64:
+        return UINT64
+    else:
+        raise ValueError(f"Invalid precision: {precision}")
+
+
+def dtype_precision(dtype: np.dtype) -> int:
+    if dtype == UINT8:
+        return 8
+    if dtype == UINT16:
+        return 16
+    if dtype == UINT32:
+        return 32
+    if dtype == UINT64:
+        return 64
+    raise ValueError(f"Invalid precision dtype: {dtype}")
 
 
 def ceildiv(a: int, b: int) -> int:
     return -(a // -b)
+
+
+# Video-related classes.
 
 
 class Video(ABC):
@@ -21,66 +87,46 @@ class Video(ABC):
     the end, one class in __init__.py combines the behavior of all these classes
     into one.
 
-    :param shape: A tuple whose first element is the number of frames of the
-        video, whose second element is the height of each frame, and whose third
-        element is the width of each frame.
-    :param precision: The number of bits of information in each of the video's
-        pixels.
-    :param chunks: A non-empty list of chunks that all have the same shape and
-        dtype.
-    :param chunk_offset: The position of the first frame of the video in the
-        first chunk.  Elements of that chunk before this position are possibly
-        uninitialized.
-    :param chunk_shape: The shape of each of the video's chunks.
-    :param chunk_dype: The dtype of each of the video's chunks.
+    Parameters
+    ----------
+
+    shape : A tuple whose first element is the number of frames of the video,
+    whose second element is the height of each frame, and whose third element is
+    the width of each frame.
+
+    precision : An integer between 0 and 64 (inclusive) that is the number of
+    bits of information in each of the video's pixels.
+
+    array : The underlying Dask array.  It has the same shape as the video, and
+    an element type that is the smallest unsigned integer type able to hold
+    values in the video's precision.
     """
 
-    _shape: tuple[int, int, int]
+    _array: da.Array
     _precision: int
-    _chunks: list[Chunk]
-    _chunk_offset: int
 
     def __init__(
         self,
-        chunks: list[Chunk],
-        shape: tuple[int, int, int],
+        array: da.Array,
         precision: int = 16,
-        chunk_offset: int = 0,
     ):
-        (f, h, w) = shape
-        nchunks = len(chunks)
-        chunk_size = 0 if nchunks == 0 else chunks[0].shape[0]
-        chunk_shape = (chunk_size, h, w)
+        shape = array.shape
+        if len(shape) != 3:
+            raise ValueError("A video's shape must have rank three.")
         dtype = precision_dtype(precision)
-        for chunk in chunks:
-            if not (chunk.shape == chunk_shape):
-                raise ValueError("All chunks of a video must have the same shape.")
-            if not (chunk.dtype == dtype):
-                raise ValueError("All chunks of a video must have a suitable dtype.")
-        if chunk_size > 0 and not 0 <= chunk_offset < chunk_size:
-            raise ValueError("The chunk_offset argument must be within the first chunk.")
-        if (nchunks * chunk_size - chunk_offset) < f:
-            raise ValueError(f"Not enough chunks for a video of length {f}.")
-        if (nchunks * chunk_size - chunk_offset - f) > chunk_size:
-            raise ValueError(f"Too many chunks for a video of length {f}.")
-        self._shape = shape
+        if array.dtype != dtype:
+            raise ValueError(
+                f"Expected a video of type {dtype}, but got one of type {array.dtype}."
+            )
         self._precision = precision
-        self._chunks = chunks
-        self._chunk_offset = chunk_offset
+        self._array = array
 
     @property
     def shape(self) -> tuple[int, int, int]:
         """
         Return the shape of the video as a (frames, height, width) tuple.
         """
-        return self._shape
-
-    @property
-    def dtype(self) -> Dtype:
-        """
-        Return the dtype of the video's array of pixels.
-        """
-        return precision_dtype(self.precision)
+        return self._array.shape
 
     @property
     def precision(self) -> int:
@@ -90,15 +136,11 @@ class Video(ABC):
         return self._precision
 
     @property
-    def chunk_shape(self) -> tuple[int, int, int]:
-        if len(self._chunks) == 0:
-            return self._shape
-        else:
-            return self._chunks[0].shape
-
-    @property
-    def chunk_dtype(self) -> Dtype:
-        return self._chunks[0].dtype
+    def dtype(self) -> np.dtype:
+        """
+        Return the dtype of the video's array of pixels.
+        """
+        return precision_dtype(self.precision)
 
     def __len__(self):
         """
@@ -106,36 +148,5 @@ class Video(ABC):
         """
         return self.shape[0]
 
-    @property
-    def chunk_offset(self):
-        return self._chunk_offset
-
-    @property
-    def chunk_size(self):
-        return self.chunk_shape[0]
-
-    @property
-    def chunks(self):
-        return self._chunks
-
     def __repr__(self):
         return f"<Video shape={self.shape!r} precision={self.precision!r} id={id(self):#x}>"
-
-    def batches(self, start: int = 0, stop: int | None = None) -> Iterator[Batch]:
-        if stop is None:
-            stop = len(self)
-        return batches_from_chunks(
-            self.chunks, self.chunk_offset + start, self.chunk_offset + stop
-        )
-
-    @staticmethod
-    def plan_chunk_size(shape: tuple[int, int, int], precision: int):
-        """
-        Return a reasonable chunk size for videos with the supplied shape and
-        precision.
-
-        The result is an integer between one and the constant BYTES_PER_CHUNK.
-        """
-        (f, h, w) = shape
-        bytes_per_frame = h * w * ceildiv(precision, 8)
-        return min(f, ceildiv(BYTES_PER_CHUNK, bytes_per_frame))
