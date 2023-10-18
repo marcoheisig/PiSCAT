@@ -37,53 +37,53 @@ class Video_from_array(Video):
         for double-precision floating-point numbers, and the ceiling of the
         two's logarithm of the distance between hi and lo for integers.
         """
-        if not isinstance(array, da.Array):
-            array = da.from_array(array)
-        shape = array.shape
-        if len(shape) != 3:
-            raise ValueError("Can only turn three-dimensional arrays into videos.")
-        dtype = array.dtype
-        kind = dtype.kind
-        bits = dtype_bits(dtype)
-        # Canonicalize lo, hi, and precision.
-        if kind == "u":
-            lo = 0 if lo is None else lo
-            hi = (2**bits) - 1 if hi is None else hi
-            precision = ceil(log2(1 + hi - lo)) if precision is None else precision
-        elif kind == "i":
-            lo = -(2 ** (bits - 1)) if lo is None else lo
-            hi = (2 ** (bits - 1)) - 1 if hi is None else hi
-            precision = ceil(log2(1 + hi - lo)) if precision is None else precision
-        elif dtype == FLOAT32:
-            lo = 0.0 if lo is None else lo
-            hi = 1.0 if hi is None else hi
-            precision = 24 if precision is None else precision
-        elif dtype == FLOAT64:
-            lo = 0.0 if lo is None else lo
-            hi = 1.0 if hi is None else hi
-            precision = 53 if precision is None else precision
-        elif dtype == FLOAT128:
-            lo = 0.0 if lo is None else lo
-            hi = 1.0 if hi is None else hi
-            precision = 53 if precision is None else precision
-        else:
-            raise ValueError(f"Cannot convert {dtype} arrays to videos.")
-        if hi <= lo:
-            raise ValueError(f"Invalid bounds: [{lo}, {hi}]")
-        data = array.clip(lo, hi) - lo
-        numerator = 2**precision - 1
-        denominator = hi - lo
-        print((lo, hi, precision, numerator, denominator))
-        if numerator == denominator:
-            result = data
-        elif precision > 53:
-            factor = np.longdouble(numerator) / np.longdouble(denominator)
-            result = data * factor
-        else:
-            factor = numerator / denominator
-            result = data * factor
-        return cls(result.astype(precision_dtype(precision)), precision)
+        array, precision = video_data_from_array(array, lo=lo, hi=hi, precision=precision)
+        return cls(array, precision)
 
 
-def video_data_from_array(array, lo=None, hi=None, precision=None) -> da.Array:
-    pass
+def video_data_from_array(array, lo=None, hi=None, precision=None) -> tuple[da.Array, int]:
+    if not isinstance(array, da.Array):
+        array = da.from_array(array)
+    shape = array.shape
+    if len(shape) != 3:
+        raise ValueError("Can only turn three-dimensional arrays into videos.")
+    dtype = array.dtype
+    kind = dtype.kind
+    bits = dtype_bits(dtype)
+    # Canonicalize lo, hi, and precision.
+    if kind == "u":
+        lo = 0 if lo is None else lo
+        hi = (2**bits) - 1 if hi is None else hi
+        precision = ceil(log2(1 + hi - lo)) if precision is None else precision
+    elif kind == "i":
+        lo = -(2 ** (bits - 1)) if lo is None else lo
+        hi = (2 ** (bits - 1)) - 1 if hi is None else hi
+        precision = ceil(log2(1 + hi - lo)) if precision is None else precision
+    elif dtype == FLOAT32:
+        lo = 0.0 if lo is None else lo
+        hi = 1.0 if hi is None else hi
+        precision = 24 if precision is None else precision
+    elif dtype == FLOAT64:
+        lo = 0.0 if lo is None else lo
+        hi = 1.0 if hi is None else hi
+        precision = 53 if precision is None else precision
+    elif dtype == FLOAT128:
+        lo = 0.0 if lo is None else lo
+        hi = 1.0 if hi is None else hi
+        precision = 53 if precision is None else precision
+    else:
+        raise ValueError(f"Cannot convert {dtype} arrays to videos.")
+    if hi <= lo:
+        raise ValueError(f"Invalid bounds: [{lo}, {hi}]")
+    data = array.clip(lo, hi) - lo
+    numerator = 2**precision - 1
+    denominator = hi - lo
+    if numerator == denominator:
+        result = data
+    elif precision > 53:
+        factor = np.longdouble(numerator) / np.longdouble(denominator)
+        result = data * factor
+    else:
+        factor = numerator / denominator
+        result = data * factor
+    return (result.astype(precision_dtype(precision)), precision)

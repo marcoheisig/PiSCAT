@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import pathlib
-from typing import Union
-
 import dask
 import dask.array as da
 import numpy as np
@@ -10,9 +7,7 @@ import numpy.typing as npt
 from typing_extensions import Self
 
 from piscat.video.from_array import Video_from_array
-from piscat.video.utilities import Filename, canonicalize_file_path
-
-Path = Union[str, pathlib.Path]
+from piscat.video.utilities import Filename, path_to_existing_file
 
 
 class Video_from_raw_file(Video_from_array):
@@ -23,7 +18,7 @@ class Video_from_raw_file(Video_from_array):
         shape: tuple[int, int, int],
         dtype: npt.DTypeLike,
     ) -> Self:
-        path = canonicalize_file_path(filename)
+        path = path_to_existing_file(filename)
         dtype = np.dtype(dtype)
         (f, h, w) = shape
         bytes_per_frame = h * w * dtype.itemsize

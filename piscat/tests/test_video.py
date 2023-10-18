@@ -97,16 +97,27 @@ def test_video_from_file():
 
 
 def test_video_from_raw_file():
-    def test(raw: bytes, expected: np.ndarray):
+    def test(raw: bytes, dtype, expected):
+        expected = np.array(expected, dtype=np.uint64)
         with tempfile.TemporaryDirectory() as td:
             path = pathlib.Path(td, "data.raw")
             path.write_bytes(raw)
-            video = Video.from_raw_file(path, expected.shape, expected.dtype)
-            assert np.array_equal(video.to_array(expected.dtype), expected)
+            video = Video.from_raw_file(path, expected.shape, dtype)
+            assert np.array_equal(video._array.compute(), expected)
 
-    test(b"\x00\x01\x02\x03\x04\x05", np.array([[[0, 1, 2], [3, 4, 5]]], dtype=np.uint8))
-    test(b"\x00\x01\x02\x03\x04\x05", np.array([[[0, 1], [2, 3], [4, 5]]], dtype=np.uint8))
-    test(b"\x00\x01\x02\x03\x04\x05", np.array([[[0, 1, 2]], [[3, 4, 5]]], dtype=np.uint8))
+    b1 = bytearray.fromhex("00 01 02 03 04 ff")
+    test(b1, np.uint8, [[[0, 1, 2], [3, 4, 255]]])
+    test(b1, np.uint8, [[[0, 1], [2, 3], [4, 255]]])
+    test(b1, np.uint8, [[[0, 1, 2]], [[3, 4, 255]]])
+    test(b1, np.int8, [[[128, 129, 130]], [[131, 132, 127]]])
+    b2 = bytearray.fromhex("0000 0001 0002 0003 0004 0005")
+    test(b2, ">u2", [[[0, 1, 2], [3, 4, 5]]])
+    test(b2, ">u2", [[[0, 1], [2, 3], [4, 5]]])
+    test(b2, ">u2", [[[0, 1, 2]], [[3, 4, 5]]])
+    b3 = bytearray.fromhex("00000000 00000001 00000002 00000003 00000004 00000005")
+    test(b3, ">u4", [[[0, 1, 2], [3, 4, 5]]])
+    test(b3, ">u4", [[[0, 1], [2, 3], [4, 5]]])
+    test(b3, ">u4", [[[0, 1, 2]], [[3, 4, 5]]])
 
 
 def test_video_indexing():
@@ -118,7 +129,20 @@ def test_video_rolling_average():
 
 
 def test_video_to_array():
-    pass
+    def test(numbers, precision, dtype, expected_numbers):
+        array = np.array([[numbers]], precision_dtype(precision))
+        expected = np.array([[expected_numbers]], dtype=dtype)
+        video = Video.from_array(array, precision=precision)
+        assert np.array_equal(video.to_array(expected.dtype), expected)
+
+    test([0, 1, 2**8 - 1], 8, np.uint8, [0, 1, 2**8 - 1])
+    test([0, 1, 2**16 - 1], 16, np.uint16, [0, 1, 2**16 - 1])
+    test([0, 1, 2**32 - 1], 32, np.uint32, [0, 1, 2**32 - 1])
+    test([0, 1, 2**64 - 1], 64, np.uint64, [0, 1, 2**64 - 1])
+    test([0, 1, 2**8 - 1], 8, np.int8, [-128, -127, 127])
+    test([0, 2**64 - 1], 64, np.int64, [-(2**63), 2**63 - 1])
+    test([0, 255], 8, np.float32, [0.0, 1.0])
+    test([0, 255], 8, np.float64, [0.0, 1.0])
 
 
 def test_video_to_file():
