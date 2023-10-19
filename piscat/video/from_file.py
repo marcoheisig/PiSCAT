@@ -3,48 +3,18 @@ from __future__ import annotations
 import pathlib
 from typing import Union
 
-import dask
-import dask.array as da
 import filetype
-import numpy as np
-import numpy.typing as npt
 from typing_extensions import Self
 
 from piscat.io import FileReader
 from piscat.io.ffmpeg import FFmpegReader
 from piscat.io.numpy import NumpyReader
-from piscat.video.baseclass import Video
+from piscat.video.from_raw_file import Video_from_raw_file
 
 Path = Union[str, pathlib.Path]
 
 
-class Video_from_file(Video):
-    @classmethod
-    def from_raw_file(
-        cls,
-        path: Path,
-        shape: tuple[int, int, int],
-        dtype: npt.DTypeLike,
-    ) -> Self:
-        if isinstance(path, str):
-            path = pathlib.Path(path)
-        dtype = np.dtype(dtype)
-        (f, h, w) = shape
-        bytes_per_frame = h * w * dtype.itemsize
-        bytes_per_chunk = 1024 * 1024 * 128
-        frames_per_chunk = max(1, bytes_per_chunk // bytes_per_frame)
-        load = dask.delayed(_chunk_from_raw_file)
-        chunks = []
-        for position in range(0, shape[0], frames_per_chunk):
-            chunk_size = min(frames_per_chunk, shape[0] - position)
-            offset = position * h * w * dtype.itemsize
-            shape = (chunk_size, h, w)
-            chunk = dask.array.from_delayed(
-                load(path, offset=offset, shape=shape, dtype=dtype), shape=shape, dtype=dtype
-            )
-            chunks.append(chunk)
-        return cls.from_array(da.concatenate(chunks, axis=0))
-
+class Video_from_file(Video_from_raw_file):
     @classmethod
     def from_file(cls, path: Path) -> Self:
         """
@@ -86,7 +56,3 @@ class Video_from_file(Video):
             reader = FFmpegReader(path)
         # Create the video.
         raise NotImplementedError()
-
-
-def _chunk_from_raw_file(filename, offset, shape, dtype):
-    data = np.memmap(filename, mode="r", shape=shape, dtype=dtype, offset=offset)

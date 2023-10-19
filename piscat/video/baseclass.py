@@ -110,9 +110,11 @@ class Video(ABC):
         array: da.Array,
         precision: int = 16,
     ):
+        if not isinstance(array, da.Array):
+            raise TypeError(f"Not a Dask array: {array}")
         shape = array.shape
         if len(shape) != 3:
-            raise ValueError("A video's shape must have rank three.")
+            raise ValueError(f"Not a shape of rank three: {shape}")
         dtype = precision_dtype(precision)
         if array.dtype != dtype:
             raise ValueError(

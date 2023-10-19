@@ -147,3 +147,27 @@ def test_video_to_array():
 
 def test_video_to_file():
     pass
+
+
+def test_video_to_raw_file():
+    def test(data, precision, dtype, expected):
+        array = da.from_array(np.array(data, precision_dtype(precision)))
+        video = Video(array, precision)
+        with tempfile.TemporaryDirectory() as td:
+            path = pathlib.Path(td, "data.raw")
+            video.to_raw_file(path, dtype)
+            with open(path, "rb") as f:
+                data = bytearray(f.read())
+        assert data == expected
+
+    b1 = bytearray.fromhex("00 01 02 03 04 ff")
+    test([[[0, 1, 2], [3, 4, 255]]], 8, np.uint8, b1)
+    test([[[0, 1], [2, 3], [4, 255]]], 8, np.uint8, b1)
+    test([[[0, 1, 2]], [[3, 4, 255]]], 8, np.uint8, b1)
+    test([[[128, 129, 130]], [[131, 132, 127]]], 8, np.int8, b1)
+    b2 = bytearray.fromhex("0000 0001 0002 0003 0004 0005")
+    test([[[0, 1, 2], [3, 4, 5]]], 16, ">u2", b2)
+    test([[[0, 1], [2, 3], [4, 5]]], 16, ">u2", b2)
+    test([[[0, 1, 2]], [[3, 4, 5]]], 16, ">u2", b2)
+    data = [[[2**15 + 0, 2**15 + 1, 2**15 + 2]], [[2**15 + 3, 2**15 + 4, 2**15 + 5]]]
+    test(data, 16, ">i2", b2)

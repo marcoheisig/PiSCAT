@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-from .change_precision import Video_change_precision
-from .concatenate import Video_concatenate
-from .from_array import Video_from_array
-from .from_raw_file import Video_from_raw_file
-from .indexing import Video_indexing
-from .rolling_average import Video_rolling_average
-from .to_array import Video_to_array
+from piscat.video.change_precision import Video_change_precision
+from piscat.video.concatenate import Video_concatenate
+from piscat.video.from_array import Video_from_array
+from piscat.video.from_raw_file import Video_from_raw_file
+from piscat.video.indexing import Video_indexing
+from piscat.video.rolling_average import Video_rolling_average
+from piscat.video.to_array import Video_to_array
+from piscat.video.to_raw_file import Video_to_raw_file
 
 
 class Video(
+    Video_to_raw_file,
     Video_to_array,
     Video_indexing,
     Video_rolling_average,
-    # Video_from_file,
-    # Video_to_file,
     Video_from_raw_file,
     Video_concatenate,
     Video_change_precision,
