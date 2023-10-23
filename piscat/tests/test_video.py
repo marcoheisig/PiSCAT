@@ -17,14 +17,13 @@ def generate_video(
     (f, h, w) = shape
     dtype = precision_dtype(precision)
     if variant == "linear":
-        stop = 2**precision - 1
-        step = math.ceil(stop / f) if f > 0 else 1
-        vector = np.array(range(0, stop, step), dtype=dtype)
-        assert len(vector) == f
+        vector = np.linspace(0, 2**precision, endpoint=False, num=f, dtype=dtype)
         array = np.broadcast_to(vector.reshape(f, 1, 1), (f, h, w))
+    elif variant == "random":
+        array = np.random.randint(0, 2**precision - 1, shape, dtype=dtype)
     else:
         raise ValueError(f"Invalid variant: {variant}")
-    return Video.from_array(array)
+    return Video(da.from_array(array), precision)
 
 
 def test_video_change_precision():
@@ -125,7 +124,28 @@ def test_video_indexing():
 
 
 def test_video_rolling_average():
-    pass
+    def ravg(array, window_size, bits):
+        size = array.shape[0] - window_size + 1
+        x = np.zeros((size, *array.shape[1:]), dtype=object)
+        for pos in range(window_size):
+            x += array[pos : pos + size]
+        return (x << bits) // window_size
+
+    for n in (1, 3, 7):
+        for precision in (1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 62, 63, 64):
+            v1 = generate_video((n, 1, 1), precision=precision, variant="linear")
+            v2 = generate_video((n, 1, 1), precision=precision, variant="random")
+            for video in (v1, v2):
+                for window_size in (1, 2, 3, n):
+                    if window_size > n:
+                        continue
+                    bits = math.ceil(math.log2(window_size))
+                    rshift = max(0, precision + bits - 64)
+                    for chunk_size in range(1, 2, 4):
+                        v = Video(video._array.rechunk((chunk_size, 1, 1)), video.precision)
+                        result = v.rolling_average(window_size)._array.compute()
+                        expected = ravg(v._array.compute() >> rshift, window_size, bits)
+                        assert np.array_equal(result, expected)
 
 
 def test_video_to_array():
