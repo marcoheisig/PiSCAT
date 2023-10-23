@@ -25,13 +25,17 @@ class Video_rolling_average(Video_change_precision):
         ravg = self.rolling_average(window_size)
         if ravg.precision == MAX_PRECISION:
             p = MAX_PRECISION
-            a = ravg._array[:-window_size]
-            b = ravg._array[window_size:] >> 1
+            s = ravg._array >> 1
         else:
             p = 1 + ravg.precision
-            a = ravg._array[:-window_size] << 1
-            b = ravg._array[window_size:]
-        return type(ravg)(a - b, p)
+            s = ravg._array
+        a = s[:-window_size]
+        b = s[window_size:]
+        base = 2 ** (p - 1) - 1
+        dtype = precision_dtype(p)
+        x = da.add(base, a, dtype=dtype)
+        y = da.subtract(x, b, dtype=dtype)
+        return type(ravg)(y, p)
 
 
 def _rolling_sum(video: Video_change_precision, window_size: int) -> tuple[da.Array, int, int]:
@@ -53,17 +57,13 @@ def _rolling_sum(video: Video_change_precision, window_size: int) -> tuple[da.Ar
         delta = min(a + b for a, b in zip(sizes[:-1], sizes[1:]))
         if 2 * window_size > delta:
             array = array.rechunk((2 * window_size, "auto", "auto"))
-    result = da.overlap.map_overlap(
-        _blockwise_rolling_sum,
-        array,
-        depth={0: (0, window_size - 1)},
-        trim=False,
-        boundary="none",
-        allow_rechunk=True,
-        dtype=precision_dtype(precision),
-        w=window_size,
+    g1 = da.overlap.overlap(array, depth={0: (0, window_size - 1)}, boundary={0: "none"})
+    c1 = g1.chunks
+    c2 = (tuple(s - window_size + 1 for s in c1[0]), c1[1], c1[2])
+    g2 = g1.map_blocks(
+        _blockwise_rolling_sum, dtype=precision_dtype(precision), w=window_size, chunks=c2
     )
-    return (result, precision, bits)
+    return (g2, precision, bits)
 
 
 def _blockwise_rolling_sum(x, w, block_info):

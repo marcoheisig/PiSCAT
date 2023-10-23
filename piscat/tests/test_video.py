@@ -129,6 +129,7 @@ def test_video_rolling_average():
         x = np.zeros((size, *array.shape[1:]), dtype=object)
         for pos in range(window_size):
             x += array[pos : pos + size]
+        assert len(x) == size
         return (x << bits) // window_size
 
     for n in (1, 3, 7):
@@ -142,9 +143,20 @@ def test_video_rolling_average():
                     bits = math.ceil(math.log2(window_size))
                     rshift = max(0, precision + bits - 64)
                     for chunk_size in range(1, 2, 4):
-                        v = Video(video._array.rechunk((chunk_size, 1, 1)), video.precision)
-                        result = v.rolling_average(window_size)._array.compute()
+                        v = Video(video._array.rechunk((chunk_size, -1, -1)), video.precision)
+                        ra = v.rolling_average(window_size)
+                        result = ra._array.compute()
                         expected = ravg(v._array.compute() >> rshift, window_size, bits)
+                        assert np.array_equal(result, expected)
+                        dra = v.differential_rolling_average(window_size)
+                        result = dra._array.compute()
+                        if ra.precision == 64:
+                            x = expected >> 1
+                            p = 64
+                        else:
+                            x = expected
+                            p = ra.precision + 1
+                        expected = (x[0:-window_size] - x[window_size:]) + 2 ** (p - 1) - 1
                         assert np.array_equal(result, expected)
 
 

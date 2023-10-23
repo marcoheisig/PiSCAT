@@ -19,7 +19,7 @@ class VideoPart:
         self._precision = precision
 
     def to_array(self, dtype=None):
-        return array_from_video_data(self._array, self._precision, dtype)
+        return array_from_video_data(self._array, self._precision, dtype).compute()
 
     @property
     def precision(self) -> int:
